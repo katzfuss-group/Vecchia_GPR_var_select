@@ -1,0 +1,410 @@
+---
+title: "Newton Method and Gradient Descent"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Overview
+
+This write-up is to show that the Newton-Raphson method may not be as effective as the gradient descent algorithm for certain objective functions. I wrote an algorithm that sequentially:
+
+  * approximate the objective function $l$ with a second-order polynomial, $l_Q$, using its gradient and Hessian at $x_{n}$; 
+  $$
+    l_Q(x) = l(x_n) + \nabla l^\top(x_n) (x - x_n) + \frac{1}{2} (x - x_n)^\top Hl(x_n) (x - x_n)
+  $$
+  use coordinate descent algorithm to find $x^*_{n+1} = \mbox{argmin} l_Q(x)$
+  * if $l(x^{*}_{n+1}) < l(x_{n})$, $x_{n + 1} = x^{*}_{n+1}$, else $x_{n + 1} = x_{n} - \epsilon \nabla l(x_{n})$
+  
+When the optimization domain is unconstraint and the Hessian is negative definite, the first step is equivalent to $x^*_{n+1} = x_{n} - Hl(x_{n})^{-1} \nabla l(x_{n})$, i.e., the Newton-Raphson method. However, when the domain is constraint or the Hessian is not negative definite, the coordinate descent algorithm is perhaps more robust.
+
+```{r, include = F}
+#' Coordinate descent using the 2nd order approximation of the log-likelihood 
+#' 
+#' @param likfun likelihood function, returns log-likelihood, gradient, and FIM
+#' @param start_parms starting values of parameters
+#' @param lambda L1 penalty parameter
+#' @param pen_idx the indices of parameters that will be penalized by the L1
+#' @param epsl step size when coordinate descent does not reduce the obj func
+#' @param silent TRUE/FALSE for suppressing output
+#' @param convtol convergence tolerance on the objective function
+#' @param convtol2 convergence tolerance on the step of one coordinate descent epoch
+#' @param max_iter maximum number of 2nd order approximations
+#' @param max_iter2 maximum number of epochs in coordinate descent
+coord_grad_L1_opt <- function(likfun, start_parms, lambda, pen_idx, epsl, 
+                              silent = FALSE, convtol = 1e-4, convtol2 = 1e-4, 
+                              max_iter = 40, max_iter2 = 40)
+{
+  
+  if(lambda < 0 || epsl < 0)
+    stop("lambda and epsl should both be greater than zero\n")
+  parms <- start_parms
+  likobj <- likfun(parms)
+  for(i in 1 : max_iter)
+  {
+    # check for Inf, NA, or NaN
+    if( !test_likelihood_object(likobj) ){
+      stop("inf or na or nan in likobj\n")
+    }
+    obj <- -likobj$loglik + lambda * sum(abs(parms[pen_idx]))
+    grad <- -likobj$grad 
+    grad[pen_idx] <- grad[pen_idx] + lambda
+    H <- likobj$info
+    if(!silent)
+    {
+        cat(paste0("Iter ", i, ": \n"))
+        cat("pars = ",  paste0(round(parms, 4)), "  \n" )
+        cat(paste0("obj = ", round(obj, 6), "  \n"))
+        cat("grad = ")
+        cat(as.character(round(grad, 3)))
+        cat("\n")
+    }
+    
+    # coordinate descent
+    b <- grad - as.vector(H %*% parms)
+    coord_des_obj <- coord_quad_posi_domain(H, b, parms, silent, 
+                                            convtol2, max_iter2, 1e6)
+    # check if obj func decreases
+    if(coord_des_obj$code < 2) # parms_new is valid
+    {
+        stepSz <- step_size_Armijo(parms, obj, grad, coord_des_obj$parms - parms, 1e-4, 
+                                   function(x){- likfun(x)$loglik + lambda * sum(x)})
+        if(stepSz < 0)
+            grad_des <- T
+        else
+        {
+            parmsNew <- parms + stepSz * (coord_des_obj$parms - parms)
+            grad_des <- F
+        }
+    }
+    else
+        grad_des <- T
+    
+    if(grad_des)
+    {
+        parmsNew <- parms - grad * epsl
+        parmsNew[parmsNew < 0] <- 0
+        if(!silent)
+        {
+            cat("Gradient descent is used\n")
+        }
+    }
+    
+    if(!silent)
+        cat("\n")
+    
+    likobjNew <- likfun(parmsNew)
+    objNew <- - likobjNew$loglik + lambda * sum(parmsNew)
+    if(objNew > obj - convtol)
+        break
+    parms <- parmsNew
+    likobj <- likobjNew
+  }
+  return(list(covparms = parms))
+}
+
+#' Coordinate descent for a quadratic function in the positive domain 
+#' 
+#' @param A 2nd order coefficient matrix (\frac{1}{2} x^\top A x)
+#' @param b 1st order coefficient vector
+#' @param start_parms starting values of parameters
+#' @param silent TRUE/FALSE for suppressing output
+#' @param convtol convergence tolerance on the step of one coordinate descent epoch
+#' @param max_iter maximum number of epochs in coordinate descent
+#' @param max_parm maximum parameter value
+#' 
+#' Return a list of two
+#' 
+#' @return code 0 if convtol is reached, 1 if max number of epochs reached, 2 parms become invalid
+#' @return parms new parameter values
+coord_quad_posi_domain <- function(A, b, start_parms, silent, convtol, max_iter, max_parm)
+{
+    parms_new <- start_parms
+    for(k in 1 : max_iter)
+    {
+        parms_new_cp <- parms_new
+        for(j in 1 : length(parms_new))
+        {
+            chg <- - sum(A[j, -j] * parms_new[-j])
+            parms_new[j] <- max((- b[j] + chg) / A[j, j], 0)
+            if(parms_new[j] > max_parm || is.na(parms_new[j]) || is.infinite(parms_new[j]))
+                return(list(code = 2, parms = parms_new))
+        }
+        if(sqrt(sum((parms_new - parms_new_cp)^2)) < convtol)
+            return(list(code = 0, parms = parms_new))
+    }
+    return(list(code = 1, parms = parms_new))
+}
+
+#' Find step size using Armijo rule:
+#'   the initial step size is assumed one
+#'   half the step size each iteration until Armijo rule is satisfied
+#' @param parms0 initial parameters
+#' @param v0 objective function value at parms0
+#' @param d0 gradient of the objective function at parms0
+#' @param d a descent direction (norm 1 not required)
+#' @param c the Armijo rule parameter
+#' @param obj_func the objective function that returns a value
+#' 
+#' @return alpha alpha * d would be the step to take, 
+#'   if no proper step size can be found, return -1
+step_size_Armijo <- function(parms0, v0, d0, d, c, obj_func)
+{
+    alpha <- 1
+    step <- alpha * d
+    val <- obj_func(parms0 + step)
+    while(val > v0 + c * sum(d0 * step))
+    {
+        alpha <- 0.5 * alpha
+        step <- alpha * d
+        if(max(abs(step)) < 1e-5)
+            return(-1)
+        val <- obj_func(parms0 + step)
+    }
+    return(alpha)
+}
+
+#' test likelihood object for NA or Inf values
+#' 
+#' @param likobj likelihood object
+test_likelihood_object <- function(likobj){
+    
+    pass <- TRUE
+    allvals <- c( likobj$loglik, likobj$grad, c(likobj$info) )
+    if( sum(is.na(allvals)) > 0  ||  sum( abs(allvals) == Inf ) > 0 ){
+        pass <- FALSE
+    }
+    return(pass)
+}
+```
+
+## Function detail
+
+The code for the above algorithm is hiden but the function name is `coord_grad_L1_opt` that given a function $l(x)$ and a positive penalty parameter $\lambda$, minimizes 
+$$
+  -l(x) + \lambda \|x\|_1, \quad \mbox{subject to} \quad x \ge 0.
+$$
+Notice that $x$ can denote a vector. At each iteration, `coord_grad_L1_opt` will also indicate whether coordinate descent or gradient descent is used for selecting $x_{n+1}$.
+
+I also compare the performance of this function with the `fisher_scoring` function from the `GpGp` package and the `optim` function native to R.
+
+## First experiment
+
+The first function used for testing is a quadratic one:
+$$
+  l(x) = -(x_1^2 + x_2^2 + x_3^2 - x_1x_2 - 0.3x_2x_3 - 0.5x_3x_1 - 3x_1 - 4x_2 - 5x_3)
+$$
+```{r}
+func1 <- function(x)
+{
+    loglik <- -(x[1]^2 + x[2]^2 + x[3]^2 - x[1]*x[2] - 0.3*x[2]*x[3] - 
+                  0.5*x[3]*x[1] - 3*x[1] - 4*x[2] - 5*x[3])
+    grad <- -c(2*x[1] - x[2] - 0.5*x[3] - 3, 2*x[2] - x[1] - 0.3*x[3] - 4, 
+               2*x[3] - 0.3*x[2] - 0.5*x[1] - 5)
+    info <- matrix(c(2, -1, -0.5, 
+                     -1, 2, -0.3, 
+                     -0.5, -0.3, 2), 
+                   3, 3, byrow = T)
+    return(list(loglik = loglik, grad = grad, info = info))
+}
+```
+`func1` returns the $l(x)$, $\nabla l(x)$, and $-Hl(x)$ under the member names of `loglik`, `grad`, and `info` to be compitible with the design of `coord_grad_L1_opt` and `fisher_scoring`. $-Hl(x)$ is returned because the Fisher information matrix has the interpretation of the negative Hessian. Define other parameters for calling `coord_grad_L1_opt`:
+```{r}
+set.seed(123)
+lambda <- 1 # penalty parameter
+pen_idx <- c(1 : 3) # which parameters are penalized
+parms_init <- runif(3) # initial value 
+epsl <- 1e-2 # gradient descent step size
+silent <- F # TRUE/FALSE for suppressing output
+convtol <- 1e-4 # convergence tolerance on the norm of grad
+convtol2 <- 1e-4 # convergence tolerance on the step of one coordinate descent epoch
+max_iter <- 40 # maximum number of 2nd order approximations
+max_iter2 <- 40 # maximum number of epochs in coordinate descent
+```
+Now call the `coord_grad_L1_opt` function:
+```{r}
+coord_obj <- coord_grad_L1_opt(func1, parms_init, lambda, pen_idx, 
+                               epsl, silent, convtol, convtol2, max_iter, max_iter2)
+```
+Define the link and penalty functions for `fisher_scoring`:
+```{r}
+library(GpGp)
+link <- function(x) {exp(x)}
+invlink <- function(x) {log(x)}
+dlink <- function(x) {exp(x)}
+pen <- function(x) {lambda * sum(x)}
+dpen <- function(x) {rep(lambda, length(x))}
+```
+Define the objective function for `fisher_scoring` based on `func1`:
+```{r}
+func1_fs <- function(lp)
+{
+    lkobj <- func1(link(lp))
+    loglik <- lkobj$loglik - pen(link(lp))
+    grad <- lkobj$grad * dlink(lp) - dpen(link(lp)) * dlink(lp)
+    info <- - lkobj$info * outer(dlink(lp), dlink(lp)) # this is now Hessian
+    return(list(loglik = loglik, grad = grad, info = info,
+                betahat = 1, betainfo = 1)) # dummy values
+}
+```
+Now call `fisher_scoring`:
+```{r}
+parms_init_log <- invlink(parms_init)
+Fisher_score_obj <- fisher_scoring(func1_fs, parms_init_log, link, FALSE)
+```
+Finally, define the objective function for `optim`:
+```{r}
+func1_optim <- function(x)
+{
+    - func1(x)$loglik + lambda * sum(x)
+}
+dfunc1_optim <- function(x)
+{
+    - func1(x)$grad + lambda
+}
+```
+Call `optim`:
+```{r}
+optim(parms_init, func1_optim, dfunc1_optim, method = "L-BFGS-B", lower = rep(0, 3))
+```
+All three optimizations work well for the quadratic objective function.
+
+## Second experiment
+
+Consider a third order polynomial:
+$$
+  l(x) = -(x_1^2 + x_2^2 + x_3^2 + x_1x_2x_3 - x_1x_2 - x_2x_3 - x_1x_3 - 3x_1 - 4x_2 - 5x_3)
+$$
+Define the objective function for `coord_grad_L1_opt`
+```{r}
+func2 <- function(x)
+{
+    loglik <- -(x[1]^2 + x[2]^2 + x[3]^2 + x[1]*x[2]*x[3] - x[1]*x[2] - 
+                    x[2]*x[3] - x[1]*x[3] - 3*x[1] - 4*x[2] - 5*x[3])
+    grad <- -c(2*x[1] + x[2]*x[3] - x[2] - x[3] - 3, 2*x[2] + x[1]*x[3] - 
+                   x[1] - x[3] - 4, 2*x[3] + x[1]*x[2] - x[2] - x[1] - 5)
+    info <- matrix(c(2, x[3] - 1, x[2] - 1, 
+                     x[3] - 1, 2, x[1] - 1, 
+                     x[2] - 1, x[1] - 1, 2), 
+                   3, 3, byrow = T)
+    return(list(loglik = loglik, grad = grad, info = info))
+}
+```
+Call `coord_grad_L1_opt` with the same optimization parameters as in the first experiment. 
+```{r}
+coord_obj <- coord_grad_L1_opt(func2, parms_init, lambda, pen_idx, 
+                               epsl, silent, convtol, convtol2, max_iter, max_iter2)
+```
+Define the objective function for `fisher_scoring` based on `func2`:
+```{r}
+func2_fs <- function(lp)
+{
+    lkobj <- func2(link(lp))
+    loglik <- lkobj$loglik - pen(link(lp))
+    grad <- lkobj$grad * dlink(lp) - dpen(link(lp)) * dlink(lp)
+    info <- - lkobj$info * outer(dlink(lp), dlink(lp)) # this is now Hessian
+    return(list(loglik = loglik, grad = grad, info = info,
+                betahat = 1, betainfo = 1)) # dummy values
+}
+```
+Now call `fisher_scoring`:
+```{r}
+parms_init_log <- invlink(parms_init)
+Fisher_score_obj <- fisher_scoring(func2_fs, parms_init_log, link, FALSE)
+```
+Finally, define the objective function for `optim`:
+```{r}
+func2_optim <- function(x)
+{
+    - func2(x)$loglik + lambda * sum(x)
+}
+dfunc2_optim <- function(x)
+{
+    - func2(x)$grad + lambda
+}
+```
+Call `optim`:
+```{r}
+optim(parms_init, func2_optim, dfunc2_optim, method = "L-BFGS-B", lower = rep(0, 3))
+```
+It seems that the `fisher_scoring` is less efficient for this third order polynomial.
+
+## Third experiment
+
+Consider a trigonometric function:
+$$
+  l(x) = -sin(x_1 x_2)
+$$
+Define the objective function for `coord_grad_L1_opt`
+```{r}
+func3 <- function(x)
+{
+    loglik <- -(sin(x[1]*x[2]))
+    grad <- -c(cos(x[1]*x[2]) * x[2], cos(x[1]*x[2]) * x[1])
+    info <- matrix(c(-sin(x[1]*x[2]) * x[2]^2, -sin(x[1]*x[2]) * x[1]*x[2] + cos(x[1]*x[2]), 
+                     -sin(x[1]*x[2]) * x[1]*x[2] + cos(x[1]*x[2]), -sin(x[1]*x[2]) * x[1]^2), 
+                   2, 2, byrow = T)
+    return(list(loglik = loglik, grad = grad, info = info))
+}
+```
+Call `coord_grad_L1_opt` with the same optimization parameters as in the first experiment. 
+```{r}
+coord_obj <- coord_grad_L1_opt(func3, parms_init[1:2], lambda, pen_idx[1:2], 
+                               epsl, silent, convtol, convtol2, max_iter, max_iter2)
+```
+Define the objective function for `fisher_scoring` based on `func3`:
+```{r}
+func3_fs <- function(lp)
+{
+    lkobj <- func3(link(lp))
+    loglik <- lkobj$loglik - pen(link(lp))
+    grad <- lkobj$grad * dlink(lp) - dpen(link(lp)) * dlink(lp)
+    info <- - lkobj$info * outer(dlink(lp), dlink(lp)) # this is now Hessian
+    return(list(loglik = loglik, grad = grad, info = info,
+                betahat = 1, betainfo = 1)) # dummy values
+}
+```
+Now call `fisher_scoring`:
+```{r}
+parms_init_log <- invlink(parms_init[1:2])
+Fisher_score_obj <- fisher_scoring(func3_fs, parms_init_log, link, FALSE)
+```
+Finally, define the objective function for `optim`:
+```{r}
+func3_optim <- function(x)
+{
+    - func3(x)$loglik + lambda * sum(x)
+}
+dfunc3_optim <- function(x)
+{
+    - func3(x)$grad + lambda
+}
+```
+Call `optim`:
+```{r}
+optim(parms_init[1:2], func3_optim, dfunc3_optim, method = "L-BFGS-B", lower = rep(0, 2))
+```
+
+## Conclusion
+
+`fisher_scoring` seems to have two issues:
+
+* may not reduce the objective function's value, especially when the second-order approximation is bad for the objective function
+* may stop when one or more parameters are zero
+
+`coord_grad_L1_opt` targets at the above two issues with:
+
+* switch to a gradient descent step if the objective function's value is not reduced
+* use coordinate descent instead of Newton's method to optimize the second-order approximation
+
+Approximately, more than half of the step taken by `coord_grad_L1_opt`are based on gradient descent, indicating the second-order approximation's minimal is not a good choice for $x_{n+1}$. Furthermore, it seems that the `optim` function with the `L-BFGS-B` algorithm is also quite nice, supporting constrained optimization while taking in a gradient function to enhance convergence.
+
+
+
+
+
+
+
+
+
+
