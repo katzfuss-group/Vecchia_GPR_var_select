@@ -81,7 +81,8 @@ quad_cdsc_L1 <- function(likfun, start_parms, lambda, pen_idx, epsl,
     parms <- parmsNew
     likobj <- likobjNew
   }
-  return(list(covparms = parms))
+  return(list(covparms = parms, 
+              obj = -likobj$loglik + lambda * sum(abs(parms[pen_idx]))))
 }
 
 #' Coordinate descent for a quadratic function in the positive domain 
