@@ -2,7 +2,8 @@ library(GpGp)
 
 #' Coordinate descent using the 2nd order approximation of the log-likelihood 
 #' 
-#' @param likfun likelihood function, returns log-likelihood, gradient, and FIM
+#' @param likfun likelihood function, returns log-likelihood
+#' @param likfunGDFIM returns log-likelihood, gradient, and FIM
 #' @param start_parms starting values of parameters
 #' @param lambda L1 penalty parameter
 #' @param pen_idx the indices of parameters that will be penalized by the L1
@@ -12,15 +13,14 @@ library(GpGp)
 #' @param convtol2 convergence tolerance on the step of one coordinate descent epoch
 #' @param max_iter maximum number of 2nd order approximations
 #' @param max_iter2 maximum number of epochs in coordinate descent
-quad_cdsc_L1 <- function(likfun, start_parms, lambda, pen_idx, epsl, 
-                              silent = FALSE, convtol = 1e-4, convtol2 = 1e-4, 
-                              max_iter = 40, max_iter2 = 40)
+quad_cdsc_L1 <- function(likfun, likfunGDFIM, start_parms, lambda, 
+                         pen_idx, epsl, silent = FALSE, convtol = 1e-4, 
+                         convtol2 = 1e-4, max_iter = 40, max_iter2 = 40)
 {
-  
   if(lambda < 0 || epsl < 0)
     stop("lambda and epsl should both be greater than zero\n")
   parms <- start_parms
-  likobj <- likfun(parms)
+  likobj <- likfunGDFIM(parms)
   for(i in 1 : max_iter)
   {
     # check for Inf, NA, or NaN
@@ -49,7 +49,7 @@ quad_cdsc_L1 <- function(likfun, start_parms, lambda, pen_idx, epsl,
     if(coord_des_obj$code < 2) # parms_new is valid
     {
       stepSz <- step_Armijo(parms, obj, grad, coord_des_obj$parms - parms, 1e-4, 
-                                 function(x){- likfun(x)$loglik + lambda * sum(x)})
+                                 function(x){- likfun(x) + lambda * sum(x)})
       if(stepSz < 0)
         grad_des <- T
       else
@@ -74,7 +74,7 @@ quad_cdsc_L1 <- function(likfun, start_parms, lambda, pen_idx, epsl,
     if(!silent)
       cat("\n")
     
-    likobjNew <- likfun(parmsNew)
+    likobjNew <- likfunGDFIM(parmsNew)
     objNew <- - likobjNew$loglik + lambda * sum(parmsNew)
     if(objNew > obj - convtol)
       break
