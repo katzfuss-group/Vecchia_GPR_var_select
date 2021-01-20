@@ -200,6 +200,16 @@ criteria <- function(varIdx)
   crtIter <- 1
   maxIter <- 100
   m <- 30
+  d <- length(varIdx)
+  linkfuns <- get_linkfun("matern25_scaledim")
+  link <- linkfuns$link
+  dlink <- linkfuns$dlink
+  invlink <- linkfuns$invlink
+  thetaTrans <- invlink(theta)
+  pen <- function(theta){lambda * sum(theta[2 : (d + 1)])}
+  dpen <- function(theta){lambda * c(0, rep(1, d), 
+                                     rep(0, length(theta) - d - 1))}
+  ddpen <- function(theta){matrix(0, length(theta), length(theta))}
   while(maxIter >= crtIter)
   {
     locsScal <- locs[, varIdx, drop = F] %*% diag(x = theta[2 : (length(varIdx) + 1)], 
@@ -210,27 +220,28 @@ criteria <- function(varIdx)
     XOdr <- X[odr, , drop = F]
     NNarray <- GpGp::find_ordered_nn(locsOdr, m = m)
     
-    objfun1 <- function(theta){
+    objfun1 <- function(thetaTrans){
       cat("c")
-      likobj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
-                                                        "matern25_scaledim_relevance",
-                                                        yOdr, XOdr, locsOdr, 
-                                                        NNarray)
-      return(-likobj$loglik)
+      likobj <- 
+        GpGp::vecchia_profbeta_loglik_grad_info(link(thetaTrans), 
+                                                "matern25_scaledim_relevance",
+                                                yOdr, XOdr, locsOdr, 
+                                                NNarray)
+      likobj$loglik <- -likobj$loglik + pen(link(thetaTrans))
+      likobj$grad <- -c(likobj$grad)*dlink(thetaTrans) +
+        dpen(link(thetaTrans))*dlink(thetaTrans)
+      likobj$info <- likobj$info*outer(dlink(thetaTrans),dlink(thetaTrans)) +
+        ddpen(link(thetaTrans))*outer(dlink(thetaTrans),dlink(thetaTrans))
+      return(likobj)
     }
-    dobjfun1 <- function(theta){
-      likobj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
-                                                        "matern25_scaledim_relevance",
-                                                        yOdr, XOdr, locsOdr, 
-                                                        NNarray)
-      return(-likobj$grad)
-    }
-    
-    optObj <- optim(theta, objfun1, dobjfun1, method = "L-BFGS-B",
-                   lower = c(0.01, rep(0, length(theta) - 2), 0.01^2), 
-                   control = list(maxit = min(crtIter, maxIter - crtIter + 1),
-                                  pgtol = 1e-3))
-    theta <- optObj$par
+    optObj <- fisher_scoring(objfun1, thetaTrans, link, T, 1e-3,
+                             min(crtIter, maxIter - crtIter + 1))
+    # 
+    # optObj <- optim(theta, objfun1, dobjfun1, method = "L-BFGS-B",
+    #                lower = c(0.01, rep(0, length(theta) - 2), 0.01^2), 
+    #                control = list(maxit = min(crtIter, maxIter - crtIter + 1),
+    #                               pgtol = 1e-3))
+    # theta <- optObj$par
     crtIter <- crtIter + min(crtIter, maxIter - crtIter + 1)
   }
   return(list(obj = optObj$value, parms = optObj$par))
