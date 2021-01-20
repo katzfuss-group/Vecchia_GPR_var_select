@@ -49,7 +49,7 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, start_parms, lambda,
     if(coord_des_obj$code < 2) # parms_new is valid
     {
       stepSz <- step_Armijo(parms, obj, grad, coord_des_obj$parms - parms, 1e-4, 
-                                 function(x){- likfun(x) + lambda * sum(x)})
+                                 function(x){- likfun(x)$loglik + lambda * sum(x)})
       if(stepSz < 0)
         grad_des <- T
       else
