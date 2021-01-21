@@ -32,19 +32,19 @@ while(maxIter >= crtIter)
   XOdr <- X[odr, , drop = F]
   NNarray <- GpGp::find_ordered_nn(locsOdr, m = m)
 
-  objfun1 <- function(theta){
+  objfun1 <- function(theta, locsOdr){
     GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
                                             yOdr, XOdr, locsOdr, 
                                             NNarray)
   }
-  objfun1GDFM <- function(theta){
+  objfun1GDFM <- function(theta, locsOdr){
     cat("c")
     GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_relevance",
                                             yOdr, XOdr, locsOdr, 
                                             NNarray)
   }
   
-  theta <- quad_cdsc_L1(objfun1, objfun1GDFM, theta, lambda, c(2 : (d + 1)), 1e-3, silent = T, 
+  theta <- quad_cdsc_L1(objfun1, objfun1GDFM, locsOdr, theta, lambda, 1e-3, silent = F, 
                max_iter = min(crtIter, maxIter - crtIter + 1), max_iter2 = 40)$covparms
   crtIter <- crtIter + min(crtIter, maxIter - crtIter + 1)
 }

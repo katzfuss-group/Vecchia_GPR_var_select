@@ -4,57 +4,61 @@ library(GpGp)
 #' 
 #' @param likfun likelihood function, returns log-likelihood
 #' @param likfunGDFIM returns log-likelihood, gradient, and FIM
+#' @param locs the n-by-d location matrix 
 #' @param start_parms starting values of parameters
 #' @param lambda L1 penalty parameter
-#' @param pen_idx the indices of parameters that will be penalized by the L1
 #' @param epsl step size when coordinate descent does not reduce the obj func
 #' @param silent TRUE/FALSE for suppressing output
 #' @param convtol convergence tolerance on the objective function
 #' @param convtol2 convergence tolerance on the step of one coordinate descent epoch
 #' @param max_iter maximum number of 2nd order approximations
 #' @param max_iter2 maximum number of epochs in coordinate descent
-quad_cdsc_L1 <- function(likfun, likfunGDFIM, start_parms, lambda, 
-                         pen_idx, epsl, silent = FALSE, convtol = 1e-4, 
+quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, start_parms, lambda, 
+                         epsl, silent = FALSE, convtol = 1e-4, 
                          convtol2 = 1e-4, max_iter = 40, max_iter2 = 40)
 {
   if(lambda < 0 || epsl < 0)
     stop("lambda and epsl should both be greater than zero\n")
   parms <- start_parms
-  likobj <- likfunGDFIM(parms)
+  nloc <- ncol(locs)
+  idxPosiLocs <- parms[2 : (1 + nloc)] > 0
+  idxPosiParm <- c(T, idxPosiLocs, rep(T, length(parms) - 1 - nloc))
+  parmsPosi <- parms[idxPosiParm]
+  likobj <- likfunGDFIM(parmsPosi, locs[, idxPosiLocs])
   for(i in 1 : max_iter)
   {
     # check for Inf, NA, or NaN
     if( !GpGp::test_likelihood_object(likobj) ){
       stop("inf or na or nan in likobj\n")
     }
-    obj <- -likobj$loglik + lambda * sum(abs(parms[pen_idx]))
+    obj <- -likobj$loglik + lambda * sum(parmsPosi[2 : (1 + sum(idxPosiLocs))])
     grad <- -likobj$grad 
-    grad[pen_idx] <- grad[pen_idx] + lambda
+    grad[2 : (1 + sum(idxPosiLocs))] <- grad[2 : (1 + sum(idxPosiLocs))] + lambda
     H <- likobj$info
     if(!silent)
     {
       cat(paste0("Iter ", i, ": \n"))
       cat("pars = ",  paste0(round(parms, 4)), "  \n" )
       cat(paste0("obj = ", round(obj, 6), "  \n"))
-      cat("grad = ")
-      cat(as.character(round(grad, 3)))
       cat("\n")
     }
     
     # coordinate descent
-    b <- grad - as.vector(H %*% parms)
-    coord_des_obj <- cdsc_quad_posi(H, b, parms, silent, 
-                                            convtol2, max_iter2, 1e6)
+    b <- grad - as.vector(H %*% parmsPosi)
+    coord_des_obj <- cdsc_quad_posi(H, b, parmsPosi, silent, 
+                                    convtol2, max_iter2, 1e6)
     # check if obj func decreases
     if(coord_des_obj$code < 2) # parms_new is valid
     {
-      stepSz <- step_Armijo(parms, obj, grad, coord_des_obj$parms - parms, 1e-4, 
-                                 function(x){- likfun(x)$loglik + lambda * sum(x)})
+      stepSz <- step_Armijo(parmsPosi, obj, grad, coord_des_obj$parms - parmsPosi, 1e-4, 
+                            function(x){- likfun(x, locs[, idxPosiLocs])$loglik + 
+                                lambda * sum(x[2 : (1 + sum(idxPosiLocs))])})
       if(stepSz < 0)
         grad_des <- T
       else
       {
-        parmsNew <- parms + stepSz * (coord_des_obj$parms - parms)
+        parmsNew <- parms
+        parmsNew[idxPosiParm] <- parmsNew[idxPosiParm] + stepSz * (coord_des_obj$parms - parmsPosi)
         grad_des <- F
       }
     }
@@ -63,7 +67,8 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, start_parms, lambda,
     
     if(grad_des)
     {
-      parmsNew <- parms - grad * epsl
+      parmsNew <- parms
+      parmsNew[idxPosiParm] <- parmsNew[idxPosiParm] - grad * epsl
       parmsNew[parmsNew < 0] <- 0
       if(!silent)
       {
@@ -74,15 +79,19 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, start_parms, lambda,
     if(!silent)
       cat("\n")
     
-    likobjNew <- likfunGDFIM(parmsNew)
-    objNew <- - likobjNew$loglik + lambda * sum(parmsNew)
+    idxPosiLocs <- parmsNew[2 : (1 + nloc)] > 0
+    idxPosiParm <- c(T, idxPosiLocs, rep(T, length(parmsNew) - 1 - nloc))
+    parmsNewPosi <- parmsNew[idxPosiParm]
+    likobjNew <- likfunGDFIM(parmsNewPosi, locs[, idxPosiLocs])
+    objNew <- - likobjNew$loglik + lambda * sum(parmsNewPosi[2 : (1 + sum(idxPosiLocs))])
     if(objNew > obj - convtol)
       break
     parms <- parmsNew
+    parmsPosi <- parmsNewPosi
     likobj <- likobjNew
+    obj <- objNew
   }
-  return(list(covparms = parms, 
-              obj = -likobj$loglik + lambda * sum(abs(parms[pen_idx]))))
+  return(list(covparms = parms, obj = obj))
 }
 
 #' Coordinate descent for a quadratic function in the positive domain 
