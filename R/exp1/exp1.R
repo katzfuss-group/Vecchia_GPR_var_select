@@ -44,7 +44,7 @@ while(maxIter >= crtIter)
                                             NNarray)
   }
   
-  theta <- quad_cdsc_L1(objfun1, objfun1GDFM, locsOdr, theta, lambda, 1e-3, silent = F, 
+  theta <- quad_cdsc_L1(objfun1, objfun1GDFM, locsOdr, theta, lambda, 1e-3, silent = T, 
                max_iter = min(crtIter, maxIter - crtIter + 1), max_iter2 = 40)$covparms
   crtIter <- crtIter + min(crtIter, maxIter - crtIter + 1)
 }

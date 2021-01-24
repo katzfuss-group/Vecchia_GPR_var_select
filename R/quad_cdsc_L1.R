@@ -9,7 +9,7 @@ library(GpGp)
 #' @param lambda L1 penalty parameter
 #' @param epsl step size when coordinate descent does not reduce the obj func
 #' @param silent TRUE/FALSE for suppressing output
-#' @param convtol convergence tolerance on the objective function
+#' @param convtol convergence tolerance on step dot grad
 #' @param convtol2 convergence tolerance on the step of one coordinate descent epoch
 #' @param max_iter maximum number of 2nd order approximations
 #' @param max_iter2 maximum number of epochs in coordinate descent
@@ -80,12 +80,14 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, start_parms, lambda,
       cat("\n")
     
     idxPosiLocs <- parmsNew[2 : (1 + nloc)] > 0
-    idxPosiParm <- c(T, idxPosiLocs, rep(T, length(parmsNew) - 1 - nloc))
-    parmsNewPosi <- parmsNew[idxPosiParm]
+    idxPosiParmNew <- c(T, idxPosiLocs, rep(T, length(parmsNew) - 1 - nloc))
+    parmsNewPosi <- parmsNew[idxPosiParmNew]
     likobjNew <- likfunGDFIM(parmsNewPosi, locs[, idxPosiLocs])
     objNew <- - likobjNew$loglik + lambda * sum(parmsNewPosi[2 : (1 + sum(idxPosiLocs))])
-    if(objNew > obj - convtol)
+    if((objNew > obj) || 
+       (abs(sum((parmsNew - parms)[idxPosiParm] * (grad))) < convtol))
       break
+    idxPosiParm <- idxPosiParmNew
     parms <- parmsNew
     parmsPosi <- parmsNewPosi
     likobj <- likobjNew
