@@ -1,22 +1,22 @@
 # Experiment 2
-n <- 1e4
-d <- 20
-r <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))
-sigmasq <- 1.0 # variance
-tausq <- 0.05^2 # nugget
-
-set.seed(123)
-locs <- lhs::randomLHS(n, d)
-locs <- locs * outer(rep(sqrt(n), n), 1 / sqrt(colSums(locs^2)))
-covM <- GpGp::matern25_scaledim_relevance(c(sigmasq, r, tausq), locs)
-cholM <- t(chol(covM))
-y <- as.vector(cholM %*% rnorm(n))
-X <- matrix(1, n, 1)
-
-rInit <- rep(1, d)
-sigmasqInit <- 0.25
-tausqInit <- 0
-lambdaVec <- exp(seq(0, log(n), length.out = 5))
+# n <- 1e4
+# d <- 20
+# r <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))
+# sigmasq <- 1.0 # variance
+# tausq <- 0.05^2 # nugget
+# 
+# set.seed(123)
+# locs <- lhs::randomLHS(n, d)
+# locs <- locs * outer(rep(sqrt(n), n), 1 / sqrt(colSums(locs^2)))
+# covM <- GpGp::matern25_scaledim_relevance(c(sigmasq, r, tausq), locs)
+# cholM <- t(chol(covM))
+# y <- as.vector(cholM %*% rnorm(n))
+# X <- matrix(1, n, 1)
+# 
+# rInit <- rep(1, d)
+# sigmasqInit <- 0.25
+# tausqInit <- 0
+# lambdaVec <- exp(seq(0, log(n), length.out = 5))
 
 # quad_cdsc_L1 method
 theta <- c(sigmasqInit, rInit, tausqInit)
@@ -54,6 +54,8 @@ for(i in 1 : outerIter)
     idxPosiSub <- rslt$covparms[2 : (length(rslt$covparms) - 1)] > 0
     idxPosi <- c(T, idxPosiSub, T)
     rslt$covparms <- rslt$covparms[idxPosi]
+    if(sum(idxPosiSub) == 0)
+      return(c(X_pred %*% rslt$betahat))
     GpGp::predictions(fit = rslt, locs_pred = locs_pred[, idxPosiSub], X_pred = X_pred, 
                       y_obs = y_obs, locs_obs = locs_obs[, idxPosiSub], X_obs = X_obs, 
                       covfun_name = "matern25_scaledim_relevance")
@@ -61,10 +63,14 @@ for(i in 1 : outerIter)
   
   loss <- rep(NA, length(lambdaVec))
   idxRnd <- sample(c(1 : n), n, F)
-  for(i in 1 : length(lambdaVec))
-    loss[i] <- cross_valid(est_func, pred_func, crit_MSE, locsOdr, XOdr, yOdr, 
-                           NNarray, lambdaVec[i], 5, idxRnd)
+  for(j in 1 : length(lambdaVec))
+  {
+    loss[j] <- cross_valid(est_func, pred_func, crit_MSE, locsOdr, XOdr, yOdr, 
+                           m, lambdaVec[j], 5, idxRnd)
+    cat(lambdaVec[j], ": loss ", loss[j], "\n")
+  }
   lambda <- lambdaVec[which.min(loss)]
+  cat(i, ": best lambda = ", lambda, "\n")
   # Define functions for parameter estimation in the outer loop
   objfun <- function(theta, locsOdr){
     cat("v\n")
@@ -81,6 +87,7 @@ for(i in 1 : outerIter)
   
   theta <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, theta, lambda, 1e-3, silent = T, 
                max_iter = innerIter, max_iter2 = 40)$covparms
+  cat(i, ": estimated theta = ", theta, "\n")
 }
 sink(file = NULL)
 

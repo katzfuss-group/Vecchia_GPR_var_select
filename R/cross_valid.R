@@ -6,11 +6,11 @@
 #' @param locs the n-by-d location matrix 
 #' @param X the n-by-p design matrix 
 #' @param y the length-n response vector
-#' @param NNarray A matrix of indices, usually the output from find_ordered_nn. Row i contains the indices of the observations that observation i conditions on. By convention, the first element of row i is i
+#' @param m number of neighbors 
 #' @param lambda the penalty parameter(s)
 #' @param nfold implement the nfold cross validation
 #' @param idxRnd a random vector of length n used for selecting the testing dataset
-cross_valid <- function(est_func, pred_func, crit_func, locs, X, y, NNarray,
+cross_valid <- function(est_func, pred_func, crit_func, locs, X, y, m,
                         lambda, nfold, idxRnd = NULL)
 {
   n <- length(y)
@@ -26,11 +26,12 @@ cross_valid <- function(est_func, pred_func, crit_func, locs, X, y, NNarray,
   {
     testSet <- testIdx[[i]]
     trainSet <- setdiff(c(1 : n), testSet)
-    rslt <- est_func(lambda, locs[trainSet, ], X[trainSet, ], 
-                     y[trainSet], NNarray[trainSet, ])
-    yhat <- pred_func(rslt, locs[testSet, ], X[testSet, ], locs[trainSet, ], X[trainSet, ], 
+    NNarray <- GpGp::find_ordered_nn(locs[trainSet, , drop = F], m = m)
+    rslt <- est_func(lambda, locs[trainSet, , drop = F], X[trainSet, , drop = F], 
+                     y[trainSet], NNarray)
+    yhat <- pred_func(rslt, locs[testSet, , drop = F], X[testSet, , drop = F], locs[trainSet, , drop = F], X[trainSet, , drop = F], 
                       y[trainSet])
-    critSum <- critSum + crit_func(y, yhat)
+    critSum <- critSum + crit_func(y[testSet], yhat)
   }
   return(critSum / nfold)
 }

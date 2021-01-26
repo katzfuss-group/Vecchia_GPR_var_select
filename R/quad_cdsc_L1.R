@@ -31,6 +31,13 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, start_parms, lambda,
     if( !GpGp::test_likelihood_object(likobj) ){
       stop("inf or na or nan in likobj\n")
     }
+    # check if the relevance parameters are all too close to zero
+    if(sum(idxPosiLocs) == 0 || sum(parmsPosi[2 : (1 + sum(idxPosiLocs))]) < 1e-3)
+    {
+      # stop("Sum of relevance parameters are smaller than 1e-3. Stopping\n")
+      break
+    }
+      
     obj <- -likobj$loglik + lambda * sum(parmsPosi[2 : (1 + sum(idxPosiLocs))])
     grad <- -likobj$grad 
     grad[2 : (1 + sum(idxPosiLocs))] <- grad[2 : (1 + sum(idxPosiLocs))] + lambda
@@ -50,9 +57,17 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, start_parms, lambda,
     # check if obj func decreases
     if(coord_des_obj$code < 2) # parms_new is valid
     {
-      stepSz <- step_Armijo(parmsPosi, obj, grad, coord_des_obj$parms - parmsPosi, 1e-4, 
-                            function(x){- likfun(x, locs[, idxPosiLocs])$loglik + 
-                                lambda * sum(x[2 : (1 + sum(idxPosiLocs))])})
+      if(sum(coord_des_obj$parms[2 : (1 + sum(idxPosiLocs))]) == 0)
+      {
+        stepSz <- 1
+        grad_des <- F
+      }
+      else
+      {
+        stepSz <- step_Armijo(parmsPosi, obj, grad, coord_des_obj$parms - parmsPosi, 1e-4, 
+                              function(x){- likfun(x, locs[, idxPosiLocs])$loglik + 
+                                  lambda * sum(x[2 : (1 + sum(idxPosiLocs))])})
+      }
       if(stepSz < 0)
         grad_des <- T
       else
