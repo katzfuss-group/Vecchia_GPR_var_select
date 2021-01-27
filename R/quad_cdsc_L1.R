@@ -5,6 +5,7 @@ library(GpGp)
 #' @param likfun likelihood function, returns log-likelihood
 #' @param likfunGDFIM returns log-likelihood, gradient, and FIM
 #' @param locs the n-by-d location matrix 
+#' @param p the number of columns in the design matrix X
 #' @param start_parms starting values of parameters
 #' @param lambda L1 penalty parameter
 #' @param epsl step size when coordinate descent does not reduce the obj func
@@ -13,7 +14,7 @@ library(GpGp)
 #' @param convtol2 convergence tolerance on the step of one coordinate descent epoch
 #' @param max_iter maximum number of 2nd order approximations
 #' @param max_iter2 maximum number of epochs in coordinate descent
-quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, start_parms, lambda, 
+quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda, 
                          epsl, silent = FALSE, convtol = 1e-4, 
                          convtol2 = 1e-4, max_iter = 40, max_iter2 = 40)
 {
@@ -24,18 +25,18 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, start_parms, lambda,
   idxPosiLocs <- parms[2 : (1 + nloc)] > 0
   idxPosiParm <- c(T, idxPosiLocs, rep(T, length(parms) - 1 - nloc))
   parmsPosi <- parms[idxPosiParm]
+  # check if the relevance parameters are all too close to zero
+  if(sum(idxPosiLocs) == 0)
+  {
+    cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
+    return(list(covparms = rep(0, length(parms)), obj = NA, betahat = rep(0, p)))
+  }
   likobj <- likfunGDFIM(parmsPosi, locs[, idxPosiLocs])
   for(i in 1 : max_iter)
   {
     # check for Inf, NA, or NaN
     if( !GpGp::test_likelihood_object(likobj) ){
       stop("inf or na or nan in likobj\n")
-    }
-    # check if the relevance parameters are all too close to zero
-    if(sum(idxPosiLocs) == 0 || sum(parmsPosi[2 : (1 + sum(idxPosiLocs))]) < 1e-3)
-    {
-      # stop("Sum of relevance parameters are smaller than 1e-3. Stopping\n")
-      break
     }
       
     obj <- -likobj$loglik + lambda * sum(parmsPosi[2 : (1 + sum(idxPosiLocs))])
@@ -49,25 +50,22 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, start_parms, lambda,
       cat(paste0("obj = ", round(obj, 6), "  \n"))
       cat("\n")
     }
-    
     # coordinate descent
     b <- grad - as.vector(H %*% parmsPosi)
     coord_des_obj <- cdsc_quad_posi(H, b, parmsPosi, silent, 
                                     convtol2, max_iter2, 1e6)
+    # check if the relevance parameters are all too close to zero
+    if(sum(coord_des_obj$parms[2 : (1 + sum(idxPosiLocs))]) == 0)
+    {
+      cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
+      return(list(covparms = rep(0, length(parms)), obj = NA, betahat = rep(0, p)))
+    }
     # check if obj func decreases
     if(coord_des_obj$code < 2) # parms_new is valid
     {
-      if(sum(coord_des_obj$parms[2 : (1 + sum(idxPosiLocs))]) == 0)
-      {
-        stepSz <- 1
-        grad_des <- F
-      }
-      else
-      {
-        stepSz <- step_Armijo(parmsPosi, obj, grad, coord_des_obj$parms - parmsPosi, 1e-4, 
-                              function(x){- likfun(x, locs[, idxPosiLocs])$loglik + 
-                                  lambda * sum(x[2 : (1 + sum(idxPosiLocs))])})
-      }
+      stepSz <- step_Armijo(parmsPosi, obj, grad, coord_des_obj$parms - parmsPosi, 1e-4, 
+                            function(x){- likfun(x, locs[, idxPosiLocs])$loglik + 
+                                lambda * sum(x[2 : (1 + sum(idxPosiLocs))])})
       if(stepSz < 0)
         grad_des <- T
       else
@@ -88,6 +86,11 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, start_parms, lambda,
       if(!silent)
       {
         cat("Gradient descent is used\n")
+      }
+      if(sum(parmsNew[2 : (1 + nloc)]) == 0)
+      {
+        cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
+        return(list(covparms = rep(0, length(parms)), obj = NA, betahat = rep(0, p)))
       }
     }
     

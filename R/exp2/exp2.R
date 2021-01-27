@@ -46,7 +46,7 @@ for(i in 1 : outerIter)
                                               y, X, locs, NNarray)
     }
     # Notice that theta will be inherited from the outerloop
-    quad_cdsc_L1(objfun, objfun_gdfm, locs, theta, lambda, 1e-3, silent = T, 
+    quad_cdsc_L1(objfun, objfun_gdfm, locs, 1, theta, lambda, 1e-3, silent = T, 
                  max_iter = innerIter, max_iter2 = 40)
   }
   pred_func <- function(rslt, locs_pred, X_pred, locs_obs, X_obs, y_obs)
@@ -85,7 +85,7 @@ for(i in 1 : outerIter)
                                             NNarray)
   }
   
-  theta <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, theta, lambda, 1e-3, silent = T, 
+  theta <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, theta, lambda, 1e-3, silent = T, 
                max_iter = innerIter, max_iter2 = 40)$covparms
   cat(i, ": estimated theta = ", theta, "\n")
 }
@@ -137,53 +137,6 @@ while(maxIter >= crtIter)
   crtIter <- crtIter + min(crtIter, maxIter - crtIter + 1)
 }
 sink(file = NULL)
-
-# Fisher scoring with range parameters
-tausqInitFS <- tausqInit + 0.01^2
-theta <- c(sigmasqInit, 1 / rInit, tausqInitFS)
-crtIter <- 1
-maxIter <- 100
-m <- 30
-
-linkfuns <- get_linkfun("matern25_scaledim")
-link <- linkfuns$link
-dlink <- linkfuns$dlink
-invlink <- linkfuns$invlink
-thetaTrans <- invlink(theta)
-
-pen <- function(theta){lambda * sum(1 / theta[2 : (d + 1)])}
-dpen <- function(theta){lambda * c(0, 
-                                   -lambda / theta[2 : (d + 1)]^2, 
-                                   rep(0, length(theta) - d - 1))}
-ddpen <- function(theta){diag(c(0, 
-                                2 * lambda / theta[2 : (d + 1)]^3,
-                                rep(0, length(theta) - d - 1)))}
-while(maxIter >= crtIter)
-{
-  locsScal <- locs %*% diag(1 / link(thetaTrans[2 : (d + 1)]))
-  odr <- GpGp::order_maxmin(locsScal)
-  yOdr <- y[odr]
-  locsOdr <- locs[odr, ]
-  XOdr <- X[odr, , drop = F]
-  NNarray <- GpGp::find_ordered_nn(locsOdr, m = m)
-  
-  objfun1 <- function(thetaTrans){
-    likobj <- 
-      GpGp::vecchia_profbeta_loglik_grad_info(link(thetaTrans), 
-                                              "matern25_scaledim",
-                                              yOdr, XOdr, locsOdr, 
-                                              NNarray)
-    likobj$loglik <- -likobj$loglik + pen(link(thetaTrans))
-    likobj$grad <- -c(likobj$grad)*dlink(thetaTrans) +
-      dpen(link(thetaTrans))*dlink(thetaTrans)
-    likobj$info <- likobj$info*outer(dlink(thetaTrans),dlink(thetaTrans)) +
-      ddpen(link(thetaTrans))*outer(dlink(thetaTrans),dlink(thetaTrans))
-    return(likobj)
-  }
-  thetaTrans <- fisher_scoring(objfun1, thetaTrans, link, F, 1e-3,
-                               min(crtIter, maxIter - crtIter + 1))$logparms
-  crtIter <- crtIter + min(crtIter, maxIter - crtIter + 1)
-}
 
 # optim package from R
 theta <- c(sigmasqInit, rInit, tausqInit)
