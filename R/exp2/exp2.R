@@ -1,22 +1,22 @@
 # Experiment 2
-# n <- 1e4
-# d <- 20
-# r <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))
-# sigmasq <- 1.0 # variance
-# tausq <- 0.05^2 # nugget
-# 
-# set.seed(123)
-# locs <- lhs::randomLHS(n, d)
-# locs <- locs * outer(rep(sqrt(n), n), 1 / sqrt(colSums(locs^2)))
-# covM <- GpGp::matern25_scaledim_relevance(c(sigmasq, r, tausq), locs)
-# cholM <- t(chol(covM))
-# y <- as.vector(cholM %*% rnorm(n))
-# X <- matrix(1, n, 1)
-# 
-# rInit <- rep(1, d)
-# sigmasqInit <- 0.25
-# tausqInit <- 0
-# lambdaVec <- exp(seq(0, log(n), length.out = 5))
+n <- 1e4
+d <- 1e3
+r <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+
+set.seed(123)
+locs <- lhs::randomLHS(n, d)
+locs <- locs * outer(rep(sqrt(n), n), 1 / sqrt(colSums(locs^2)))
+covM <- GpGp::matern25_scaledim_relevance(c(sigmasq, r, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+X <- matrix(1, n, 1)
+
+rInit <- rep(1, d)
+sigmasqInit <- 0.25
+tausqInit <- 0
+lambdaVec <- exp(seq(0, log(n), length.out = 5))
 
 # quad_cdsc_L1 method
 theta <- c(sigmasqInit, rInit, tausqInit)
@@ -154,14 +154,16 @@ while(maxIter >= crtIter)
   NNarray <- GpGp::find_ordered_nn(locsOdr, m = m)
   
   objfun1 <- function(theta){
-    cat("c")
-    likobj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
-                                                      "matern25_scaledim_relevance",
-                                                      yOdr, XOdr, locsOdr, 
-                                                      NNarray)
+    cat(theta, "\n")
+    likobj <- GpGp::vecchia_profbeta_loglik(theta, 
+                                            "matern25_scaledim_relevance",
+                                            yOdr, XOdr, locsOdr, 
+                                            NNarray)
     return(-likobj$loglik + lambda * sum(theta[2 : (d + 1)]))
   }
   dobjfun1 <- function(theta){
+    # cat("c")
+    cat(theta, "\n")
     likobj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
                                                       "matern25_scaledim_relevance",
                                                       yOdr, XOdr, locsOdr, 
@@ -171,7 +173,7 @@ while(maxIter >= crtIter)
   }
   
   theta <- optim(theta, objfun1, dobjfun1, method = "L-BFGS-B",
-                 lower = c(0.01, rep(0, length(theta) - 1)), 
+                 lower = c(0.01, rep(0, d), 0.01^2), 
                  control = list(maxit = min(crtIter, maxIter - crtIter + 1),
                                 trace = 0,
                                 pgtol = 1e-3))$par

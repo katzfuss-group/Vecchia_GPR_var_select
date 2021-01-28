@@ -14,12 +14,15 @@ library(GpGp)
 #' @param convtol2 convergence tolerance on the step of one coordinate descent epoch
 #' @param max_iter maximum number of 2nd order approximations
 #' @param max_iter2 maximum number of epochs in coordinate descent
+#' @param lb_parms the lower bounds for parameters
 quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda, 
                          epsl, silent = FALSE, convtol = 1e-4, 
-                         convtol2 = 1e-4, max_iter = 40, max_iter2 = 40)
+                         convtol2 = 1e-4, max_iter = 40, max_iter2 = 40, lb_parms = rep(0, length(start_parms)))
 {
   if(lambda < 0 || epsl < 0)
     stop("lambda and epsl should both be greater than zero\n")
+  if(any(start_parms < lb_parms))
+    stop("some coefficient in start_parms is smaller than its lb")
   parms <- start_parms
   nloc <- ncol(locs)
   idxPosiLocs <- parms[2 : (1 + nloc)] > 0
@@ -53,7 +56,7 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
     # coordinate descent
     b <- grad - as.vector(H %*% parmsPosi)
     coord_des_obj <- cdsc_quad_posi(H, b, parmsPosi, silent, 
-                                    convtol2, max_iter2, 1e6)
+                                    convtol2, max_iter2, 1e6, lb_parms[idxPosiParm])
     # check if the relevance parameters are all too close to zero
     if(sum(coord_des_obj$parms[2 : (1 + sum(idxPosiLocs))]) == 0)
     {
@@ -123,12 +126,13 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
 #' @param convtol convergence tolerance on the step of one coordinate descent epoch
 #' @param max_iter maximum number of epochs in coordinate descent
 #' @param max_parm maximum parameter value
+#' @param lb the lower bound for the parameters, same length as start_parms
 #' 
 #' Return a list of two
 #' 
 #' @return code 0 if convtol is reached, 1 if max number of epochs reached, 2 parms become invalid
 #' @return parms new parameter values
-cdsc_quad_posi <- function(A, b, start_parms, silent, convtol, max_iter, max_parm)
+cdsc_quad_posi <- function(A, b, start_parms, silent, convtol, max_iter, max_parm, lb)
 {
   parms_new <- start_parms
   for(k in 1 : max_iter)
@@ -137,7 +141,7 @@ cdsc_quad_posi <- function(A, b, start_parms, silent, convtol, max_iter, max_par
     for(j in 1 : length(parms_new))
     {
       chg <- - sum(A[j, -j] * parms_new[-j])
-      parms_new[j] <- max((- b[j] + chg) / A[j, j], 0)
+      parms_new[j] <- max((- b[j] + chg) / A[j, j], lb[j])
       if(parms_new[j] > max_parm || is.na(parms_new[j]) || is.infinite(parms_new[j]))
         return(list(code = 2, parms = parms_new))
     }
