@@ -1,6 +1,6 @@
 # Experiment 2
 n <- 1e4
-d <- 1e3
+d <- 1e2
 r <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))
 sigmasq <- 1.0 # variance
 tausq <- 0.05^2 # nugget
@@ -15,8 +15,9 @@ X <- matrix(1, n, 1)
 
 rInit <- rep(1, d)
 sigmasqInit <- 0.25
-tausqInit <- 0
+tausqInit <- 0.01^2
 lambdaVec <- exp(seq(0, log(n), length.out = 5))
+lb_nonrel_parms <- c(0.01^2, 0.01^2)
 
 # quad_cdsc_L1 method
 theta <- c(sigmasqInit, rInit, tausqInit)
@@ -47,7 +48,7 @@ for(i in 1 : outerIter)
     }
     # Notice that theta will be inherited from the outerloop
     quad_cdsc_L1(objfun, objfun_gdfm, locs, 1, theta, lambda, 1e-3, silent = T, 
-                 max_iter = innerIter, max_iter2 = 40)
+                 max_iter = innerIter, max_iter2 = 40, lb_nonrel_parms = lb_nonrel_parms)
   }
   pred_func <- function(rslt, locs_pred, X_pred, locs_obs, X_obs, y_obs)
   {
@@ -85,8 +86,8 @@ for(i in 1 : outerIter)
                                             NNarray)
   }
   
-  theta <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, theta, lambda, 1e-3, silent = T, 
-               max_iter = innerIter, max_iter2 = 40)$covparms
+  theta <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, theta, lambda, 1e-3, silent = F, 
+               max_iter = innerIter, max_iter2 = 40, lb_nonrel_parms = lb_nonrel_parms)$covparms
   cat(i, ": estimated theta = ", theta, "\n")
 }
 sink(file = NULL)
@@ -98,7 +99,7 @@ crtIter <- 1
 maxIter <- 100
 m <- 30
 
-linkfuns <- get_linkfun("matern25_scaledim")
+linkfuns <- GpGp::get_linkfun("matern25_scaledim")
 link <- linkfuns$link
 dlink <- linkfuns$dlink
 invlink <- linkfuns$invlink

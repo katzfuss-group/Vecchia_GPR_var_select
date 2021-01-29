@@ -14,15 +14,17 @@ library(GpGp)
 #' @param convtol2 convergence tolerance on the step of one coordinate descent epoch
 #' @param max_iter maximum number of 2nd order approximations
 #' @param max_iter2 maximum number of epochs in coordinate descent
-#' @param lb_parms the lower bounds for parameters
+#' @param lb_nonrel_parms the lower bounds for non-relevance parameters
 quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda, 
                          epsl, silent = FALSE, convtol = 1e-4, 
-                         convtol2 = 1e-4, max_iter = 40, max_iter2 = 40, lb_parms = rep(0, length(start_parms)))
+                         convtol2 = 1e-4, max_iter = 40, max_iter2 = 40, 
+                         lb_nonrel_parms = rep(0, length(start_parms) - ncol(locs)))
 {
   if(lambda < 0 || epsl < 0)
     stop("lambda and epsl should both be greater than zero\n")
+  lb_parms <- c(lb_nonrel_parms[1], rep(0, ncol(locs)), lb_nonrel_parms[-1])
   if(any(start_parms < lb_parms))
-    stop("some coefficient in start_parms is smaller than its lb")
+    stop("some coefficient in start_parms is smaller than its lower bound")
   parms <- start_parms
   nloc <- ncol(locs)
   idxPosiLocs <- parms[2 : (1 + nloc)] > 0
@@ -32,7 +34,7 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
   if(sum(idxPosiLocs) == 0)
   {
     cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
-    return(list(covparms = rep(0, length(parms)), obj = NA, betahat = rep(0, p)))
+    return(list(covparms = parms, obj = NA, betahat = rep(0, p)))
   }
   likobj <- likfunGDFIM(parmsPosi, locs[, idxPosiLocs])
   for(i in 1 : max_iter)
@@ -61,7 +63,10 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
     if(sum(coord_des_obj$parms[2 : (1 + sum(idxPosiLocs))]) == 0)
     {
       cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
-      return(list(covparms = rep(0, length(parms)), obj = NA, betahat = rep(0, p)))
+      return(list(covparms = c(coord_des_obj$parms[1], 
+                               rep(0, nloc), 
+                               coord_des_obj$parms[-(1 : (1 + sum(idxPosiLocs)))]), 
+                  obj = NA, betahat = rep(0, p)))
     }
     # check if obj func decreases
     if(coord_des_obj$code < 2) # parms_new is valid
@@ -85,7 +90,7 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
     {
       parmsNew <- parms
       parmsNew[idxPosiParm] <- parmsNew[idxPosiParm] - grad * epsl
-      parmsNew[parmsNew < 0] <- 0
+      parmsNew[parmsNew < lb_parms] <- lb_parms[parmsNew < lb_parms]
       if(!silent)
       {
         cat("Gradient descent is used\n")
@@ -93,7 +98,7 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
       if(sum(parmsNew[2 : (1 + nloc)]) == 0)
       {
         cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
-        return(list(covparms = rep(0, length(parms)), obj = NA, betahat = rep(0, p)))
+        return(list(covparms = parmsNew, obj = NA, betahat = rep(0, p)))
       }
     }
     
