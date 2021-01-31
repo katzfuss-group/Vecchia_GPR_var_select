@@ -1,17 +1,24 @@
-for(i in 1 : 5)
+#' Batch-start the optimization over the relevance parameters 
+#' 
+#' @param nonrel_parms init val for non-relevance parms
+#' @param d number of relevance parms
+#' @param batch_sz batch size
+#' @param extra_batch extra iterations for randomly selecting batch_sz zero relevance parms and add one
+#' @param opt_fun the optimization function
+#' @param ... Other arguments to opt_fun
+batch_start <- function(nonrel_parms, d, batch_sz, extra_batch, opt_fun, ...)
 {
-  idx <- i + seq(1, d, by = d / 20)
-  theta[idx] <- theta[idx] + 1
-  theta <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, theta, lambda, 1e-3, silent = T, 
-                        max_iter = innerIter, max_iter2 = 40, lb_nonrel_parms = lb_nonrel_parms)$covparms
-  cat(i, ": estimated theta = ", theta, "\n")
-}
-
-
-thetaTrans <- fisher_scoring(objfun1, thetaTrans, link, T, 1e-3,
-                             100)$logparms
-
-batch_start <- function(nonrel_parms, d, batch_sz, opt_fun, ...)
-{
-  
+  step <- floor(d / batch_sz)
+  parms <- c(nonrel_parms[1], rep(0, d), nonrel_parms[-1])
+  for(i in 1 : step)
+  {
+    idx <- seq(from = i, to = d, by = step)
+    parms[idx + 1] <- parms[idx + 1] + 1
+    parms <- opt_fun(parms, ...)
+  }
+  # for(i in 1 : extra_epoch)
+  # {
+  #   
+  # }
+  return(parms)
 }

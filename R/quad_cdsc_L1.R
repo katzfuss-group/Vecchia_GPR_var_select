@@ -34,7 +34,7 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
   if(sum(idxPosiLocs) == 0)
   {
     cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
-    return(list(covparms = parms, obj = NA, betahat = rep(0, p)))
+    return(list(covparms = parms, obj = NA, betahat = rep(0, p), neval = 0))
   }
   likobj <- likfunGDFIM(parmsPosi, locs[, idxPosiLocs])
   for(i in 1 : max_iter)
@@ -66,7 +66,7 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
       return(list(covparms = c(coord_des_obj$parms[1], 
                                rep(0, nloc), 
                                coord_des_obj$parms[-(1 : (1 + sum(idxPosiLocs)))]), 
-                  obj = NA, betahat = rep(0, p)))
+                  obj = NA, betahat = rep(0, p), neval = i))
     }
     # check if obj func decreases
     if(coord_des_obj$code < 2) # parms_new is valid
@@ -98,7 +98,7 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
       if(sum(parmsNew[2 : (1 + nloc)]) == 0)
       {
         cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
-        return(list(covparms = parmsNew, obj = NA, betahat = rep(0, p)))
+        return(list(covparms = parmsNew, obj = NA, betahat = rep(0, p), neval = i))
       }
     }
     
@@ -119,7 +119,7 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
     likobj <- likobjNew
     obj <- objNew
   }
-  return(list(covparms = parms, obj = obj, betahat = likobj$betahat))
+  return(list(covparms = parms, obj = obj, betahat = likobj$betahat, neval = i + 1))
 }
 
 #' Coordinate descent for a quadratic function in the positive domain 

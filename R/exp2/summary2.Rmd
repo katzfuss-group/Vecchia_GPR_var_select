@@ -1,0 +1,276 @@
+---
+title: "summary2"
+author: "Jian Cao"
+date: "January 31, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Major findings
+
+* After separating the computation of the gradient and FIM from the computation of the objective function, the `quad_cdsc_L1` seems to be able to achieve the same coverge with smaller number of gradient estimations than `fisher_scoring`
+* It seems that the second-order methods cannot estimate too many parameters simultaneously. Otherwise, the convergence will be wired or in the case of `fish_scoring`, singularity problem may show up. This feels to be consistent with one feature of Newton algorithm -- convergence is guaranteed only when the initial point is sufficiently close to the (local) optimal
+* The pseudo-Newton method , `L-BFGS-B` used in the `optim` package is less affected by the number of starting non-zero relevance parameters. 
+* `quad_cdsc_L1` combined the following seems to work efficiently
+    + with starting with a small subset of all relevance parameters being non-zero 
+    + cross validation 
+
+## Preparation
+Need to install a modified version of the GpGp R package.
+```{r}
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+```
+Need to load the `quad_cdsc_L1` function.
+```{r}
+source("quad_cdsc_L1.R")
+```
+
+## Number of Gradient (FIM) Eval
+To compare the efficiency, we still use $d = 20$ because $d = 100$ does not work well without modification of our algorithms as shown later. First generate the GP with 100 spatial dimensions.
+```{r}
+set.seed(123)
+n <- 1e4
+d <- 20
+r <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+locs <- lhs::randomLHS(n, d)
+locs <- locs * outer(rep(sqrt(n), n), 1 / sqrt(colSums(locs^2)))
+covM <- GpGp::matern25_scaledim_relevance(c(sigmasq, r, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+X <- matrix(1, n, 1)
+```
+Remove the large matrices to save RAM.
+```{r}
+rm(covM, cholM)
+```
+Define the optimization parameters
+```{r}
+rInit <- rep(1, d)
+sigmasqInit <- 0.25
+tausqInit <- 0.01^2
+lambdaVec <- c(0, 1, 10)
+lb_nonrel_parms <- c(0.01^2, 0.01^2)
+```
+`lambdaVec` are values of the penalty parameter to check. `lb_nonrel_parms` defines the lower limit of $\sigma^2$ and $\tau^2$ during the optimiztion using `quad_cdsc_L1`. Define the link function and the penalty function for using `fisher_scoring`.
+```{r}
+linkfuns <- GpGp::get_linkfun("matern25_scaledim")
+link <- linkfuns$link
+dlink <- linkfuns$dlink
+invlink <- linkfuns$invlink
+```
+Here, we check for each `lambda`, how many evaluations of the gradient (FIM) and the objective function are needed by `quad_cdsc_L1` and `fisher_scoring`. 
+```{r}
+maxIter <- 100
+m <- 30
+for(lambda in lambdaVec)
+{
+  # Fisher scoring
+  crtIter <- 1
+  neval <- 0
+  theta <- c(sigmasqInit, rInit, tausqInit)
+  thetaTrans <- invlink(theta)
+  pen <- function(theta){lambda * sum(theta[2 : (d + 1)])}
+  dpen <- function(theta){lambda * c(0, rep(1, d), 
+                                     rep(0, length(theta) - d - 1))}
+  ddpen <- function(theta){matrix(0, length(theta), length(theta))}
+  while(maxIter >= crtIter)
+  {
+    locsScal <- locs %*% diag(link(thetaTrans[2 : (d + 1)]))
+    odr <- GpGp::order_maxmin(locsScal)
+    yOdr <- y[odr]
+    locsOdr <- locs[odr, ]
+    XOdr <- X[odr, , drop = F]
+    NNarray <- GpGp::find_ordered_nn(locsOdr, m = m)
+    
+    objfun <- function(thetaTrans){
+    likobj <- 
+      GpGp::vecchia_profbeta_loglik_grad_info(link(thetaTrans), 
+                                              "matern25_scaledim_relevance",
+                                              yOdr, XOdr, locsOdr, 
+                                              NNarray)
+      likobj$loglik <- -likobj$loglik + pen(link(thetaTrans))
+      likobj$grad <- -c(likobj$grad)*dlink(thetaTrans) +
+        dpen(link(thetaTrans))*dlink(thetaTrans)
+      likobj$info <- likobj$info*outer(dlink(thetaTrans),dlink(thetaTrans)) +
+        ddpen(link(thetaTrans))*outer(dlink(thetaTrans),dlink(thetaTrans))
+      return(likobj)
+    }
+    FisherObj <- fisher_scoring(objfun, thetaTrans, link, T, 1e-3,
+                        min(crtIter, maxIter - crtIter + 1))
+    thetaTrans <- FisherObj$logparms
+    neval <- FisherObj$neval + neval
+    crtIter <- crtIter + min(crtIter, maxIter - crtIter + 1)
+  }
+  cat("fisher_scoring lambda =", lambda, "parms =", link(thetaTrans), 
+      "neval =", neval, "\n")
+  
+  # quad_cdsc_L1
+  crtIter <- 1
+  neval <- 0
+  theta <- c(sigmasqInit, rInit, tausqInit)
+  while(maxIter >= crtIter)
+  {
+    locsScal <- locs %*% diag(theta[2 : (d + 1)])
+    odr <- GpGp::order_maxmin(locsScal)
+    yOdr <- y[odr]
+    locsOdr <- locs[odr, ]
+    XOdr <- X[odr, , drop = F]
+    NNarray <- GpGp::find_ordered_nn(locsOdr, m = m)
+    # Define functions for parameter estimation in the outer loop
+    objfun <- function(theta, locsOdr){
+      GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
+                                              yOdr, XOdr, locsOdr, 
+                                              NNarray)
+    }
+    objfun_gdfm <- function(theta, locsOdr){
+      GpGp::vecchia_profbeta_loglik_grad_info(theta,
+                                              "matern25_scaledim_relevance",
+                                              yOdr, XOdr, locsOdr, 
+                                              NNarray)
+    }
+    
+    quadObj <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, theta, lambda, 1e-3,
+                          silent = T, 
+                          max_iter = min(crtIter, maxIter - crtIter + 1),
+                          max_iter2 = 40, 
+                          lb_nonrel_parms = lb_nonrel_parms)
+    theta <- quadObj$covparms
+    neval <- quadObj$neval + neval
+    crtIter <- crtIter + min(crtIter, maxIter - crtIter + 1)
+  }
+  cat("quad_cdsc_L1 lambda =", lambda, "parms =", theta, 
+      "neval =", neval, "\n")
+}
+```
+
+## When $d$ is bigger
+I would like to show that the second-order methods, i.e., `quad_cdsc_L1` and `fisher_scoring`, are not suitable for optimizing over a bigger number of number of relevance parameters. Here, I increase the $d$ from $20$ to $100$.
+```{r}
+n <- 1e4
+d <- 100
+r <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+locs <- lhs::randomLHS(n, d)
+locs <- locs * outer(rep(sqrt(n), n), 1 / sqrt(colSums(locs^2)))
+covM <- GpGp::matern25_scaledim_relevance(c(sigmasq, r, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+X <- matrix(1, n, 1)
+rm(covM, cholM)
+```
+Use the same initial values of the parameters.
+```{r}
+rInit <- rep(1, d)
+sigmasqInit <- 0.25
+tausqInit <- 0.01^2
+lambdaVec <- c(0, 1, 10)
+lb_nonrel_parms <- c(0.01^2, 0.01^2)
+```
+Other optimization parameters
+```{r}
+maxIter <- 100
+m <- 30
+lambda <- 0
+```
+In this section, we suppose that `lambda` is zero, i.e., no penalty. First, check the performance of `quad_cdsc_L1`.
+```{r}
+crtIter <- 1
+neval <- 0
+theta <- c(sigmasqInit, rInit, tausqInit)
+while(maxIter >= crtIter)
+{
+  locsScal <- locs %*% diag(theta[2 : (d + 1)])
+  odr <- GpGp::order_maxmin(locsScal)
+  yOdr <- y[odr]
+  locsOdr <- locs[odr, ]
+  XOdr <- X[odr, , drop = F]
+  NNarray <- GpGp::find_ordered_nn(locsOdr, m = m)
+  # Define functions for parameter estimation in the outer loop
+  objfun <- function(theta, locsOdr){
+    GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
+                                            yOdr, XOdr, locsOdr, 
+                                            NNarray)
+  }
+  objfun_gdfm <- function(theta, locsOdr){
+    GpGp::vecchia_profbeta_loglik_grad_info(theta,
+                                            "matern25_scaledim_relevance",
+                                            yOdr, XOdr, locsOdr, 
+                                            NNarray)
+  }
+  
+  quadObj <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, theta, lambda, 1e-3,
+                        silent = T, 
+                        max_iter = min(crtIter, maxIter - crtIter + 1),
+                        max_iter2 = 40, 
+                        lb_nonrel_parms = lb_nonrel_parms)
+  theta <- quadObj$covparms
+  neval <- quadObj$neval + neval
+  crtIter <- crtIter + min(crtIter, maxIter - crtIter + 1)
+}
+cat("quad_cdsc_L1 lambda =", lambda, "parms =", theta, 
+      "neval =", neval, "\n")
+```
+Next, check the performance of `fisher_scoring`.
+```{r}
+crtIter <- 1
+neval <- 0
+theta <- c(sigmasqInit, rInit, tausqInit)
+thetaTrans <- invlink(theta)
+pen <- function(theta){lambda * sum(theta[2 : (d + 1)])}
+dpen <- function(theta){lambda * c(0, rep(1, d), 
+                                   rep(0, length(theta) - d - 1))}
+ddpen <- function(theta){matrix(0, length(theta), length(theta))}
+while(maxIter >= crtIter)
+{
+  locsScal <- locs %*% diag(link(thetaTrans[2 : (d + 1)]))
+  odr <- GpGp::order_maxmin(locsScal)
+  yOdr <- y[odr]
+  locsOdr <- locs[odr, ]
+  XOdr <- X[odr, , drop = F]
+  NNarray <- GpGp::find_ordered_nn(locsOdr, m = m)
+  
+  objfun <- function(thetaTrans){
+  likobj <- 
+    GpGp::vecchia_profbeta_loglik_grad_info(link(thetaTrans), 
+                                            "matern25_scaledim_relevance",
+                                            yOdr, XOdr, locsOdr, 
+                                            NNarray)
+    likobj$loglik <- -likobj$loglik + pen(link(thetaTrans))
+    likobj$grad <- -c(likobj$grad)*dlink(thetaTrans) +
+      dpen(link(thetaTrans))*dlink(thetaTrans)
+    likobj$info <- likobj$info*outer(dlink(thetaTrans),dlink(thetaTrans)) +
+      ddpen(link(thetaTrans))*outer(dlink(thetaTrans),dlink(thetaTrans))
+    return(likobj)
+  }
+  FisherObj <- fisher_scoring(objfun, thetaTrans, link, T, 1e-3,
+                      min(crtIter, maxIter - crtIter + 1))
+  thetaTrans <- FisherObj$logparms
+  neval <- FisherObj$neval + neval
+  crtIter <- crtIter + min(crtIter, maxIter - crtIter + 1)
+}
+cat("fisher_scoring lambda =", lambda, "parms =", link(thetaTrans), 
+    "neval =", neval, "\n")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
