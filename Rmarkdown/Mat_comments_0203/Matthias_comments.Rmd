@@ -1,0 +1,60 @@
+---
+title: "Matthias_comments"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+>  If I understand correctly, your 4th bullet is similar to what I had in mind. When d is very large, it is not feasible to start with small or zero lambda and initialize all relevances as nonzero. Instead, I think we need to start with a large lambda and most relevances equal to zero, and hopefully be able to optimize while exploiting sparsity. Then we could start decreasing lambda gradually to allow less sparse solutions, but (again, hopefully) stop this procedure before we get to a small lambda and very dense solution (e.g., because the cross validation indicates that the solutions are getting worse).
+
+When using the relevance parameters, I agree that we need to start with most relevances equal to zero. In this case, we can exploit the sparsity quite well, i.e., computing the gradient and FIM w.r.t. non-zero relevance parameters. 
+
+As for decreasing lambda to allow less sparsity, I am not sure if this can be done when using the relevance parameters since zero-valued parameters will stay at zero. However, in terms of variable selection, I am considering the following procedure:
+
+* For each $\lambda$ in the pool
+    + For each training set, initialize $\boldsymbol{\theta} = \mathbf{0}$
+        + $\mbox{sz} = 20$, for $i \in 1 : \frac{d}{\mbox{sz}}$
+            + $\tau = \mbox{seq(from = i, to = d, by = d / sz)}$  
+            $\boldsymbol{\theta}_{\tau} = \mathbf{1}$, 
+            optimize$(\boldsymbol{\theta})$ for a small number of iterations
+        + optimize$(\boldsymbol{\theta})$ for some more iterations
+        + Compute the MSE with the testing set
+    + Average the MSE across different training/testing sets
+* Choose the best $\lambda$
+* Use the entire dataset to repeat the training process above
+
+> Related to that, you said on Overleaf that "relevance parameters that already reach zero will stay at zero." As I wrote in a previous email:
+"What if we did the optimization wrt the square root of the relevances, say $s_l = (r_l)^{1/2}$? Would the derivative wrt to $s_l$ at $s_l=0$ be nonzero? Would that work?
+If not, do you have any other suggestions for how to jump-start? This will be crucial when we do the optimization sequentially for different penalty parameters, starting with the empty model."
+
+I think that $s_l = (r_l)^{1/2} \Rightarrow r_l = s_l^2$.
+$$
+  \frac{\partial l}{\partial s_l} = \frac{\partial l}{\partial r_l} \frac{\partial r_l}{\partial s_l} = 0 \times 2 s_l = 0
+$$
+If we consider $s_l = (r_l)^{2}$, assuming $d_{ij}$ is the distance between the $i$-th and $j$-th locations under the `scaled' location coordinates.
+\begin{align*}
+  \frac{\partial \boldsymbol{\Sigma_{ij}}}{\partial s_l} &= \frac{\partial \boldsymbol{\Sigma_{ij}}}{\partial d_{ij}} \frac{\partial d_{ij}}{\partial r_l} \frac{\partial r_l}{\partial s_l} \\
+  &= \frac{\partial \boldsymbol{\Sigma_{ij}}}{\partial d_{ij}} \frac{c_1 \cdot r_l}{d_{ij}} \frac{1}{2} \frac{1}{r_l} \\
+  &= c_2 \cdot \frac{\partial \boldsymbol{\Sigma_{ij}}}{\partial d_{ij}} \frac{1}{d_{ij}}
+\end{align*} 
+Hence, $\frac{\partial \boldsymbol{\Sigma_{ij}}}{\partial s_l}$ should be non-zero. However, it requires further experiment to see if they can return to non-zero values from zero.
+
+As for jump-start, my idea is basically the pseudo-algorithm from the previous answer. I think the previous jump-start algorithm is more efficient but not sure which one is more effective in terms of variable selections.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
