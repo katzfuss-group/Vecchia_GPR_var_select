@@ -12,7 +12,7 @@
 #' @param nfold implement the nfold cross validation
 #' @param idxRnd a random vector of length n used for selecting the testing dataset
 cross_valid <- function(est_func, pred_func, crit_func, locs, NNarray, X, y, m,
-                        lambda, nfold, idxRnd = NULL)
+                        lambda, nfold, idxRnd = NULL, ...)
 {
   n <- length(y)
   if(is.null(idxRnd))
@@ -21,7 +21,7 @@ cross_valid <- function(est_func, pred_func, crit_func, locs, NNarray, X, y, m,
   testIdx <- list()
   for(i in (1 : (nfold - 1)))
     testIdx[[i]] <- idxRnd[((i - 1) * segLen + 1) : (i * segLen)]
-  testIdx[[nfold]] <- idxRnd[((i - 1) * segLen + 1) : n]
+  testIdx[[nfold]] <- idxRnd[(i * segLen + 1) : n]
   critSum <- 0
   for(i in 1 : nfold)
   {
@@ -34,7 +34,7 @@ cross_valid <- function(est_func, pred_func, crit_func, locs, NNarray, X, y, m,
     NNarrayTrain <- matrix(sapply(NNarrayTrain, function(x){if(is.na(x)) NA else which(x == trainSet)}),
                            nrow(NNarrayTrain), ncol(NNarrayTrain))
     rslt <- est_func(lambda, locs[trainSet, , drop = F], X[trainSet, , drop = F], 
-                     y[trainSet], NNarrayTrain)
+                     y[trainSet], NNarrayTrain, ...)
     yhat <- pred_func(rslt, locs[testSet, , drop = F], X[testSet, , drop = F], locs[trainSet, , drop = F], 
                       X[trainSet, , drop = F], y[trainSet])
     critSum <- critSum + crit_func(y[testSet], yhat)

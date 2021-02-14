@@ -33,15 +33,6 @@ cross_valid <- function(est_func, pred_func, crit_func, locs, NNarray, X, y, m,
     NNarrayTrain <- t(NNarrayTrain)
     NNarrayTrain <- matrix(sapply(NNarrayTrain, function(x){if(is.na(x)) NA else which(x == trainSet)}),
                            nrow(NNarrayTrain), ncol(NNarrayTrain))
-    
-    # test
-    if(any(range(NNarrayTrain, na.rm = T) != c(1, 8000)))
-    {
-      tmp <- 1
-      stop(cat("NNarrayTrain range error", lambda, i, "\n"))
-    }
-      
-    
     rslt <- est_func(lambda, locs[trainSet, , drop = F], X[trainSet, , drop = F], 
                      y[trainSet], NNarrayTrain)
     yhat <- pred_func(rslt, locs[testSet, , drop = F], X[testSet, , drop = F], locs[trainSet, , drop = F], 

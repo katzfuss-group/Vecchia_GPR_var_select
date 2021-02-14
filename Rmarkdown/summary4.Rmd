@@ -18,12 +18,12 @@ In this markdown, I would like to show an effective and efficient way for variab
 
 ## Preparation
 Need to install a modified version of the GpGp R package.
-```{r}
+```{r install the moderated GpGp Pkg}
 devtools::install_github("https://github.com/SamCao1991/GpGp.git")
 library(GpGp)
 ```
 Need to load the `quad_cdsc_L1`, the `batch_start`, and the `cross_valid` functions.
-```{r}
+```{r load relevant function}
 source("quad_cdsc_L1.R")
 source("cross_valid.R")
 source("batch_start.R")
@@ -57,12 +57,13 @@ tausqInit <- 0.01^2
 lambdaVec <- c(0, 1, 10, 100)
 lb_nonrel_parms <- c(0.01^2, 0.01^2) 
 ```
-`lb_nonrel_parms` defines the lower limit of $\sigma^2$ and $\tau^2$ during the optimiztion using `quad_cdsc_L1`. Next, we need to select `lambda` based on cross-validation. To use `cross_valid`, we need to define an estimation function, `est_func` and a prediction function, `pred_func`.
+`lb_nonrel_parms` defines the lower limit of $\sigma^2$ and $\tau^2$ during the optimiztion using `quad_cdsc_L1`. Next, we define `est_func` and `pred_func` to be used in `cross_valid`. `opt_func_wrapper` is a wrapper that changes the `start_parms` argument of `quad_cdsc_L1` to the first position.
 ```{r funcs for batch_start and cross-valid}
 opt_func_wrapper <- function(X, ...) {
   quad_cdsc_L1(start_parms = X, ...)
 }
-est_func <- function(lambda, locs, X, y, NNarray)
+est_func <- function(lambda, locs, X, y, NNarray, 
+                     thetaInit = c(sigmasqInit, rep(0, d), tausqInit))
 {
   objfun <- function(theta, locs){
     GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
@@ -72,10 +73,11 @@ est_func <- function(lambda, locs, X, y, NNarray)
     GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_relevance",
                                             y, X, locs, NNarray)
   }
-  batch_start(nonrel_parms = c(sigmasqInit, tausqInit), d = d, batch_sz = 20, 
-              extra_batch = 0, opt_fun = opt_func_wrapper, likfun = objfun, 
+  batch_start(nonrel_parms = thetaInit[-c(2 : (d + 1))], d = d, batch_sz = 20, 
+              extra_batch = 0, opt_fun = opt_func_wrapper, 
+              rel_parms = thetaInit[c(2 : (d + 1))], likfun = objfun, 
               likfunGDFIM = objfun_gdfm, locs = locs, p = 1, lambda = lambda, 
-              epsl = 1e-3, silent = T, max_iter = cvInnerIter, lb_nonrel_parms = lb_nonrel_parms)
+              epsl = 1e-3, silent = T, max_iter = 20, lb_nonrel_parms = lb_nonrel_parms)
 }
 pred_func <- function(rslt, locs_pred, X_pred, locs_obs, X_obs, y_obs)
 {
@@ -89,36 +91,54 @@ pred_func <- function(rslt, locs_pred, X_pred, locs_obs, X_obs, y_obs)
                     covfun_name = "matern25_scaledim_relevance")
 }
 ```
-For cross-validation, I did it two times. The second time is only different from the first time in terms of location ordering.
-```{r cross-validation}
-startTime <- Sys.time()
-cvInnerIter <- 20
-cvOuterIter <- 1
+The first step of variable selection is to do `batch_start` with `lambda = 0` for two times. The second time does the same as the first except with a different ordering of the locations. The goal here is to shrink the size of `d` while avoiding the high complexity of cross-validation. For this step, we can utilize the `est_func` as well.
+```{r two times batch_start}
 theta <- c(sigmasqInit, rep(1, d), tausqInit) # used for initial ordering of locs
-for(i in 1 : cvOuterIter)
+for(i in 1 : 2)
 {
+  if(all(theta[2 : (d + 1)] == 0))
+    stop("All range parameters are zero. Cannot perform reordering\n")
   locsScal <- locs %*% diag(theta[2 : (d + 1)])
   odr <- GpGp::order_maxmin(locsScal)
   yOdr <- y[odr]
   locsScalOdr <- locsScal[odr, , drop = F]
   locsOdr <- locs[odr, , drop = F]
   XOdr <- X[odr, , drop = F]
-  NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m + ceiling(n / 5))
-  # Compute CV loss
-  loss <- rep(NA, length(lambdaVec))
-  idxRnd <- sample(c(1 : n), n, F) # used for sampling in the cross-validation
-  for(j in 1 : length(lambdaVec))
-  {
-    loss[j] <- cross_valid(est_func, pred_func, crit_MSE, locsOdr, NNarray, 
-                           XOdr, yOdr, m, lambdaVec[j], 5, idxRnd)
-    cat(lambdaVec[j], ": loss ", loss[j], "\n")
-  }
-  lambda <- lambdaVec[which.min(loss)]
-  cat("CV", i, ": best lambda = ", lambda, "\n")
-  # Fit with all data
-  theta <- est_func(lambda, locsOdr, XOdr, yOdr, NNarray[, 1 : (m + 1), drop = F])$covparms
-  cat("CV", i, ": parms = ", theta, "\n")
+  NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
+  
+  optObj <- est_func(0, locsOdr, XOdr, yOdr, NNarray)
+  theta <- optObj$covparms
 }
+idxLocsZero <- theta[2 : (d + 1)] == 0
+theta <- theta[- (idxLocsZero + 1)]
+locs <- locs[, - idxLocsZero]
+d <- d - sum(idxLocsZero)
+```
+For cross-validation, I did it two times. The second time is only different from the first time in terms of location ordering.
+```{r cross-validation}
+startTime <- Sys.time()
+
+cvIter <- 20
+locsScal <- locs %*% diag(theta[2 : (d + 1)])
+odr <- GpGp::order_maxmin(locsScal)
+yOdr <- y[odr]
+locsScalOdr <- locsScal[odr, , drop = F]
+locsOdr <- locs[odr, , drop = F]
+XOdr <- X[odr, , drop = F]
+NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m + ceiling(n / 5))
+# Compute CV loss
+loss <- rep(NA, length(lambdaVec))
+idxRnd <- sample(c(1 : n), n, F) # used for sampling in the cross-validation
+for(j in 1 : length(lambdaVec))
+{
+  loss[j] <- cross_valid(est_func, pred_func, crit_MSE, locsOdr, NNarray, 
+                         XOdr, yOdr, m, lambdaVec[j], 5, idxRnd, 
+                         thetaInit = theta)
+  cat(lambdaVec[j], ": loss ", loss[j], "\n")
+}
+lambda <- lambdaVec[which.min(loss)]
+cat("CV", i, ": best lambda = ", lambda, "\n")
+
 endTime <- Sys.time()
 cat("Cross-validation used", as.numeric(difftime(endTime, startTime, units = "secs")), "seconds\n")
 ```
