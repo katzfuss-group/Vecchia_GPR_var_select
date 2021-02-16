@@ -10,18 +10,27 @@ batch_start <- function(nonrel_parms, d, batch_sz, extra_batch, opt_fun, rel_par
 {
   step <- floor(d / batch_sz)
   parms <- c(nonrel_parms[1], rel_parms, nonrel_parms[-1])
-  for(i in 1 : step)
+  if(step > 0)
   {
-    idx <- seq(from = i, to = d, by = step)
-    parms[idx + 1] <- parms[idx + 1] + 1
+    for(i in 1 : step)
+    {
+      idx <- seq(from = i, to = d, by = step)
+      parms[idx + 1] <- parms[idx + 1] + 1
+      optObj <- opt_fun(parms, ...)
+      parms <- optObj$covparms
+      cat("step", i, "non-zero parm indices are", which(parms[2 : (d + 1)] > 0), "\n")
+    }
+    # for(i in 1 : extra_batch)
+    # {
+    #   
+    # }
+  }else{
+    parms <- c(nonrel_parms[1], rel_parms + 1, nonrel_parms[-1])
     optObj <- opt_fun(parms, ...)
     parms <- optObj$covparms
-    cat("step", i, "non-zero parm indices are", which(parms[2 : (d + 1)] > 0), "\n")
+    cat("step", 1, "non-zero parm indices are", which(parms[2 : (d + 1)] > 0), "\n")
   }
-  # for(i in 1 : extra_batch)
-  # {
-  #   
-  # }
+  
   optObj <- opt_fun(parms, ...)
   cat("After a final optimization, non-zero parm indices are", which(parms[2 : (d + 1)] > 0), "\n")
   return(optObj)

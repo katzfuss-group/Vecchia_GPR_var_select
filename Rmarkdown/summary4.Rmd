@@ -1,7 +1,6 @@
 ---
-title: "summary3"
+title: "summary4"
 author: "Jian Cao"
-date: "February 1, 2021"
 output: html_document
 ---
 
@@ -11,10 +10,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Overview
 
-In this markdown, I would like to show an effective and efficient way for variable selection when $d$ is big, e.g., $1000$. As mentioned in **summary2**, this method is `quad_cdsc_L1` combined with
+In this markdown, I would like to show an effective and efficient way for variable selection when $d$ is big, e.g., $1000$. This method sequentially does:
 
-* with starting with a small subset of all relevance parameters being non-zero 
-* cross validation 
+* estimate with `quad_cdsc_L1` and `batch_start` without penalty
+* downsize `locs` and `theta`
+* cross-validation with `locs` in a much lower dimension and find the best `lambda`
+* final estimation with the best `lambda`
+
+Compared with applying cross-validation directly, this method should be tremendously faster:
+
+* cross-validation in `d = 1000` dimensions is estimated to take 15 hours for each `lambda`
+* fitting without penalty is guaranteed to produce the most non-zero relevance parameters
 
 ## Preparation
 Need to install a modified version of the GpGp R package.
@@ -28,6 +34,8 @@ source("quad_cdsc_L1.R")
 source("cross_valid.R")
 source("batch_start.R")
 ```
+Notice that for `batch_start`, I used the `seq` function to choose relevance parameters so that the first 5 relevance parameters are chosen in the first 5 iterations, respectively, which more or less avoids `cheating' of incoporating the true relevance parameters in the same batch.
+
 ## Simulate GP in $\mathbb{R}^{1000}$
 ```{r simulate GP in d dimensions}
 set.seed(123)
@@ -54,7 +62,7 @@ Define initial values for non-relevance parameters only because relevance parame
 ```{r init val for non-rel parms-penalty parms-opt bounds}
 sigmasqInit <- 0.25
 tausqInit <- 0.01^2
-lambdaVec <- c(0, 1, 10, 100)
+lambdaVec <- c(0, 1, 10, 100, 1000, 10000)
 lb_nonrel_parms <- c(0.01^2, 0.01^2) 
 ```
 `lb_nonrel_parms` defines the lower limit of $\sigma^2$ and $\tau^2$ during the optimiztion using `quad_cdsc_L1`. Next, we define `est_func` and `pred_func` to be used in `cross_valid`. `opt_func_wrapper` is a wrapper that changes the `start_parms` argument of `quad_cdsc_L1` to the first position.
@@ -93,6 +101,8 @@ pred_func <- function(rslt, locs_pred, X_pred, locs_obs, X_obs, y_obs)
 ```
 The first step of variable selection is to do `batch_start` with `lambda = 0` for two times. The second time does the same as the first except with a different ordering of the locations. The goal here is to shrink the size of `d` while avoiding the high complexity of cross-validation. For this step, we can utilize the `est_func` as well.
 ```{r two times batch_start}
+startTime <- Sys.time()
+
 theta <- c(sigmasqInit, rep(1, d), tausqInit) # used for initial ordering of locs
 for(i in 1 : 2)
 {
@@ -109,12 +119,24 @@ for(i in 1 : 2)
   optObj <- est_func(0, locsOdr, XOdr, yOdr, NNarray)
   theta <- optObj$covparms
 }
+
+endTime <- Sys.time()
+cat("Two times of fitting without penalty used", 
+    as.numeric(difftime(endTime, startTime, units = "secs")), "seconds\n")
+```
+See which indices of `theta` are greater than zero and what are their values.
+```{r check first round fitting}
+which(theta > 0)
+theta[theta > 0]
+```
+The results seems very good. Without penalty, the result is already very good. Now I downsize `locs` to make the cross validation much faster. 
+```{r downsizing locs}
 idxLocsZero <- theta[2 : (d + 1)] == 0
-theta <- theta[- (idxLocsZero + 1)]
-locs <- locs[, - idxLocsZero]
+theta <- theta[c(T, theta[2 : (d + 1)] > 0, T)]
+locs <- locs[, !idxLocsZero]
 d <- d - sum(idxLocsZero)
 ```
-For cross-validation, I did it two times. The second time is only different from the first time in terms of location ordering.
+For cross-validation, the initial values for `theta` inherits those from the above fitting without penalty.
 ```{r cross-validation}
 startTime <- Sys.time()
 
@@ -137,12 +159,12 @@ for(j in 1 : length(lambdaVec))
   cat(lambdaVec[j], ": loss ", loss[j], "\n")
 }
 lambda <- lambdaVec[which.min(loss)]
-cat("CV", i, ": best lambda = ", lambda, "\n")
+cat("CV: best lambda = ", lambda, "\n")
 
 endTime <- Sys.time()
 cat("Cross-validation used", as.numeric(difftime(endTime, startTime, units = "secs")), "seconds\n")
 ```
-The final fit inherits the previously computed `theta`. 
+The final fit inherits the previously computed `theta` without penalty. 
 ```{r}
 startTime <- Sys.time()
 crtIter <- 1

@@ -1,5 +1,5 @@
 ---
-title: "Matthias_comments"
+title: "Response to Matthias Comments"
 output: html_document
 ---
 
@@ -13,17 +13,15 @@ When using the relevance parameters, I agree that we need to start with most rel
 
 As for decreasing lambda to allow less sparsity, I am not sure if this can be done when using the relevance parameters since zero-valued parameters will stay at zero. However, in terms of variable selection, I am considering the following procedure:
 
-* For each $\lambda$ in the pool
-    + For each training set, initialize $\boldsymbol{\theta} = \mathbf{0}$
-        + $\mbox{sz} = 20$, for $i \in 1 : \frac{d}{\mbox{sz}}$
-            + $\tau = \mbox{seq(from = i, to = d, by = d / sz)}$  
-            $\boldsymbol{\theta}_{\tau} = \mathbf{1}$, 
-            optimize$(\boldsymbol{\theta})$ under $\lambda$ for a small number of iterations
-        + optimize$(\boldsymbol{\theta})$ under $\lambda$ for some more iterations
-        + Compute the MSE with the testing set
-    + Average the MSE across different training/testing sets
-* Choose the best $\lambda$
-* Use the entire dataset to repeat the training process above
+* Do the estimation with all data and zero penalty, which already gives a sparse model. Notice that the estimation here involves `batch_start` that iterates between:
+    + add one to a small number (20) of relevance parameters
+    + run `quad_cdsc_L1` for a maximum of 20 iterations
+* Discard the dimensions with zero relevance parameters
+* Run cross-validation in the remaining dimensions, since $\lambda = 0$ should give the least sparse model
+* Find the best `lambda` value based on some criteria, currently its MSE, which is not ideal
+* Fit the model with all data and the best `lambda`
+
+The above procedure is implemented in `summary`, which seems very efficient and effective in our simulation study with `n = 1e4` and `d = 1e3`.
 
 > Related to that, you said on Overleaf that "relevance parameters that already reach zero will stay at zero." As I wrote in a previous email:
 "What if we did the optimization wrt the square root of the relevances, say $s_l = (r_l)^{1/2}$? Would the derivative wrt to $s_l$ at $s_l=0$ be nonzero? Would that work?
@@ -41,31 +39,14 @@ If we consider $s_l = (r_l)^{2}$, assuming $d_{ij}$ is the distance between the 
 \end{align*} 
 Hence, $\frac{\partial \boldsymbol{\Sigma_{ij}}}{\partial s_l}$ should be non-zero. However, it requires further experiment to see if they can return to non-zero values from zero.
 
-As for jump-start, my idea is basically the pseudo-algorithm from the previous answer. I think the previous jump-start algorithm is more efficient since we only need to compute the gradient and the FIM for a small number of parameters but not sure which one is more effective in terms of variable selection.
+As for jump-start, the idea is summarized in `batch_start` introduced above.
 
 > Also related to 1), I'm still not sure how you know how to pre-determine reasonable lambda values. For example, how large would lambda have to be to get a completely sparse solution? How did you come up with the value of 10 in your example? As I wrote in a previous email:
 "What exact range of lambda values are you proposing? I guess the idea would be to have a lambda grid whose upper endpoint is large enough (i.e., strong enough penalization) to obtain a completely empty model, and whose lower endpoint is small enough so that all covariates are included. Is that guaranteed with your suggestion?"
 
-The choice of $\lambda$ I am proposing is $0, 1, 10, \ldots, n$. Thus, the smaller end is without penalty but not sure whether all covariates will be included. In fact, I think that the sparsity in the relevance parameters still exists when $\lambda = 0$ because it feels that the relevance parameters for insignificant dimensions tend to become smaller or just reach zero. As for the bigger end of $\lambda$, empirically before $\lambda$ reaches $n$, all relevance parameters will be optimized to zero.
+I think this discussion may be discussed later or is less needed since zero penalty, based on the simulation study, already produces a sparse model. Finding a $\lambda$ that makes all relevance parameters zero is also not difficult, e.g., $\lambda = n$ or we can exponential increase it until the model is empty.
 
-Upon reflecting your comments, I have another idea similar to binary search:
-
-* Start with $\lambda = n$
-* While (#non-zero parms < $d_0$ and $\lambda$ > $\lambda_0$)
-    + Optimize $\boldsymbol{\theta}$ using $\lambda$
-    + Report (#non-zero parms, $\boldsymbol{\theta}$)
-    + $\lambda = \lambda / 2$
-
-If we include cross-validation, the pseudo-algorithm would be:
-
-* Start with $\lambda = n$
-* While (#non-zero parms < $d_0$ and $\lambda$ > $\lambda_0$)
-    + Cross-validation using $\lambda$
-    + Fit whole dataset with $\lambda$
-    + Report (#non-zero parms, $\boldsymbol{\theta}$, loss)
-    + $\lambda = \lambda / 2$
-    
-What do you think of the two methods of choosing $\lambda$?
+After dimension reduction, cross-validation is tremendously faster.
 
 > By the way, in your code it looks like you are doing the maximin ordering in the scaled input space, but the nearest-neighbor search in the original input space. I recommend doing both in the scaled space. That is what we did in SVecchia (https://github.com/katzfuss-group/scaledVecchia/blob/master/vecchia_scaled.R).
 
@@ -73,7 +54,7 @@ Yep, thanks! I need to change the code to base the nearest-neighbor searching on
 
 > In addition, you may want to try a larger m, to see if that leads to improved solutions. $m = 30$ is reasonably large in 2 input dimensions, but it is probably too small to get good approximation accuracy in 20 or even 100 dimensions.
 
-Sure, I will try $m = 50$ and $m = 100$ in the next simulation.
+Sure, I used $m = 100$ in `summary`.
 
 > This is not a high priority right now, but eventually it would be interesting to explore what happens when the covariates are correlated (as will likely often be the case in "real" regression settings) and to compare the methods in terms of prediction scores (e.g., RMSE and log score).
 
@@ -86,7 +67,13 @@ Yes, good to know ) Although the implementation is outside the Fisher_scoring al
 * How to choose the threshold $r_0$
 * This means that once a relevance parameter reaches $r_0$, it will stay at zero, which is stricter than that once a relevance parameter reaches $0$, it will stay at zero
 
+## Conclusion -- 0215
 
+* The first-stage fitting without penalty is highly beneficial for cross-validation. In fact, based on the simulation result, cross-validation may not seem very important. Of course, we should check the case when the covariates are correlated 
+* Using the predition from `GpGp` and MSE as the criteria for cross-validation is not optimal. As shown in `summary`, `lambda = 100` is clearly not as good as `lambda = 0` in terms of the distance to the true relevance parameter values
+* The reason I first did fitting without penalty is 
+    + Observation that sparsity already appears when `lambda = 0`
+    + Cross-validation when `n = 1e4` and `d = 1e3` is very expensive
 
 
 

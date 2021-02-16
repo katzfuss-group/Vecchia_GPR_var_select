@@ -38,6 +38,9 @@ cross_valid <- function(est_func, pred_func, crit_func, locs, NNarray, X, y, m,
     yhat <- pred_func(rslt, locs[testSet, , drop = F], X[testSet, , drop = F], locs[trainSet, , drop = F], 
                       X[trainSet, , drop = F], y[trainSet])
     critSum <- critSum + crit_func(y[testSet], yhat)
+    
+    # verbose
+    cat(lambda, i, ":", rslt$covparms, "loss:", crit_func(y[testSet], yhat), "\n")
   }
   return(critSum / nfold)
 }

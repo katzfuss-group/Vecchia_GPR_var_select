@@ -12,7 +12,7 @@
 #' @param nfold implement the nfold cross validation
 #' @param idxRnd a random vector of length n used for selecting the testing dataset
 cross_valid <- function(est_func, pred_func, crit_func, locs, NNarray, X, y, m,
-                        lambda, nfold, idxRnd = NULL)
+                        lambda, nfold, idxRnd = NULL, ...)
 {
   n <- length(y)
   if(is.null(idxRnd))
@@ -34,10 +34,13 @@ cross_valid <- function(est_func, pred_func, crit_func, locs, NNarray, X, y, m,
     NNarrayTrain <- matrix(sapply(NNarrayTrain, function(x){if(is.na(x)) NA else which(x == trainSet)}),
                            nrow(NNarrayTrain), ncol(NNarrayTrain))
     rslt <- est_func(lambda, locs[trainSet, , drop = F], X[trainSet, , drop = F], 
-                     y[trainSet], NNarrayTrain)
+                     y[trainSet], NNarrayTrain, ...)
     yhat <- pred_func(rslt, locs[testSet, , drop = F], X[testSet, , drop = F], locs[trainSet, , drop = F], 
                       X[trainSet, , drop = F], y[trainSet])
     critSum <- critSum + crit_func(y[testSet], yhat)
+    
+    # verbose
+    cat(lambda, i, ":", rslt$covparms, "loss:", crit_func(y[testSet], yhat), "\n")
   }
   return(critSum / nfold)
 }

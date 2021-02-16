@@ -186,6 +186,7 @@ step_Armijo <- function(parms0, v0, d0, d, c, obj_func)
 
 #' Find step size based on gradient using Armijo rule:
 #' @param parms0 initial parameters
+#' @param idxRel indices for the relevance parameters
 #' @param v0 objective function value at parms0
 #' @param d0 gradient of the objective function at parms0
 #' @param lb the lower bounds of the parameters
@@ -194,7 +195,7 @@ step_Armijo <- function(parms0, v0, d0, d, c, obj_func)
 #' @param arg_check a function for checking the validity of the input to obj_func
 #' 
 #' @return parms if valid parms is found, otherwise -1
-step_grad_Armijo <- function(parms0, v0, d0, lb, c, obj_func, arg_check)
+step_grad_Armijo <- function(parms0, idxRel, v0, d0, lb, c, obj_func, arg_check)
 {
   alphaVec <- sort((parms0 - lb) / d0, decreasing = T)
   alphaVec <- alphaVec[alphaVec > 0]

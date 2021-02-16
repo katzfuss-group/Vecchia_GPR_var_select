@@ -36,7 +36,7 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
     cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
     return(list(covparms = parms, obj = NA, betahat = rep(0, p), neval = 0))
   }
-  likobj <- likfunGDFIM(parmsPosi, locs[, idxPosiLocs, drop = F])
+  likobj <- likfunGDFIM(parmsPosi, locs[, idxPosiLocs])
   for(i in 1 : max_iter)
   {
     # check for Inf, NA, or NaN
@@ -59,20 +59,15 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
     b <- grad - as.vector(H %*% parmsPosi)
     coord_des_obj <- cdsc_quad_posi(H, b, parmsPosi, silent, 
                                     convtol2, max_iter2, 1e6, lb_parms[idxPosiParm])
-    # check if the relevance parameters are all too close to zero
+    # check if the relevance parameters are all zero
     if(sum(coord_des_obj$parms[2 : (1 + sum(idxPosiLocs))]) == 0)
-    {
-      cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
-      return(list(covparms = c(coord_des_obj$parms[1], 
-                               rep(0, nloc), 
-                               coord_des_obj$parms[-(1 : (1 + sum(idxPosiLocs)))]), 
-                  obj = NA, betahat = rep(0, p), neval = i))
-    }
+      coord_des_obj$code <- 2
+    
     # check if obj func decreases
     if(coord_des_obj$code < 2) # parms_new is valid
     {
       stepSz <- step_Armijo(parmsPosi, obj, grad, coord_des_obj$parms - parmsPosi, 1e-4, 
-                            function(x){- likfun(x, locs[, idxPosiLocs, drop = F])$loglik + 
+                            function(x){- likfun(x, locs[, idxPosiLocs])$loglik + 
                                 lambda * sum(x[2 : (1 + sum(idxPosiLocs))])})
       if(stepSz < 0)
         grad_des <- T
@@ -88,18 +83,20 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
     
     if(grad_des)
     {
+      parmsNewPosiTmp <- step_grad_Armijo(parms[idxPosiParm], c(2 : (sum(idxPosiParm) - 1)), 
+                                          obj, grad, lb_parms[idxPosiParm], 1e-3, 
+                                       function(x){- likfun(x, locs[, idxPosiLocs])$loglik + 
+                                           lambda * sum(x[2 : (1 + sum(idxPosiLocs))])},
+                                       function(x){sum(x[2 : (1 + sum(idxPosiLocs))]) > 1e-3})
+      if(all(parmsNewPosiTmp == -1))
+      {
+        cat("gradient descent cannot find proper parameter values\n")
+        return(list(covparms = lb_parms, obj = NA, betahat = rep(0, p), neval = i))
+      }
+      
       parmsNew <- parms
-      parmsNew[idxPosiParm] <- parmsNew[idxPosiParm] - grad * epsl
-      parmsNew[parmsNew < lb_parms] <- lb_parms[parmsNew < lb_parms]
-      if(!silent)
-      {
-        cat("Gradient descent is used\n")
-      }
-      if(sum(parmsNew[2 : (1 + nloc)]) == 0)
-      {
-        cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
-        return(list(covparms = parmsNew, obj = NA, betahat = rep(0, p), neval = i))
-      }
+      parmsNew[idxPosiParm] <- parmsNewPosiTmp
+      cat("Gradient descent is used\n")
     }
     
     if(!silent)
@@ -108,7 +105,7 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
     idxPosiLocs <- parmsNew[2 : (1 + nloc)] > 0
     idxPosiParmNew <- c(T, idxPosiLocs, rep(T, length(parmsNew) - 1 - nloc))
     parmsNewPosi <- parmsNew[idxPosiParmNew]
-    likobjNew <- likfunGDFIM(parmsNewPosi, locs[, idxPosiLocs, drop = F])
+    likobjNew <- likfunGDFIM(parmsNewPosi, locs[, idxPosiLocs])
     objNew <- - likobjNew$loglik + lambda * sum(parmsNewPosi[2 : (1 + sum(idxPosiLocs))])
     if((objNew > obj) || 
        (abs(sum((parmsNew - parms)[idxPosiParm] * (grad))) < convtol))
@@ -182,4 +179,34 @@ step_Armijo <- function(parms0, v0, d0, d, c, obj_func)
     val <- obj_func(parms0 + step)
   }
   return(alpha)
+}
+
+#' Find step size based on gradient using Armijo rule:
+#' @param parms0 initial parameters
+#' @param idxRel indices for the relevance parameters
+#' @param v0 objective function value at parms0
+#' @param d0 gradient of the objective function at parms0
+#' @param lb the lower bounds of the parameters
+#' @param c the Armijo rule parameter
+#' @param obj_func the objective function that returns a value
+#' @param arg_check a function for checking the validity of the input to obj_func
+#' 
+#' @return parms if valid parms is found, otherwise -1
+step_grad_Armijo <- function(parms0, idxRel, v0, d0, lb, c, obj_func, arg_check)
+{
+  alphaVec <- sort(((parms0 - lb) / d0)[idxRel], decreasing = T)
+  alphaVec <- alphaVec[alphaVec > 0]
+  for(alpha in alphaVec)
+  {
+    parms <- parms0
+    parms[idxRel] <- parms0[idxRel] - alpha * d0[idxRel]
+    parms[parms < lb] <- lb[parms < lb]
+    if(arg_check(parms) == F)
+      next
+    step <- parms - parms0
+    val <- obj_func(parms)
+    if(val < v0 + c * sum(d0 * step))
+      return(parms)
+  }
+  return(-1)
 }
