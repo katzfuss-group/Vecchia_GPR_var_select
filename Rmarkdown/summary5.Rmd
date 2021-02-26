@@ -73,7 +73,7 @@ maxIter <- 100
 theta <- c(sigmasqInit, c(rep(0, 5), rep(1, d - 5)), tausqInit)
 while(maxIter >= crtIter)
 {
-  locsScal <- locs %*% diag(theta[2 : (d + 1)])
+  locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
   odr <- GpGp::order_maxmin(locsScal)
   yOdr <- y[odr]
   locsScalOdr <- locsScal[odr, , drop = F]
@@ -115,7 +115,7 @@ dlink <- linkfuns$dlink
 invlink <- linkfuns$invlink
 while(maxIter >= crtIter)
 {
-  locsScal <- locs %*% diag(theta[2 : (d + 1)])
+  locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
   odr <- GpGp::order_maxmin(locsScal)
   yOdr <- y[odr]
   locsScalOdr <- locsScal[odr, , drop = F]

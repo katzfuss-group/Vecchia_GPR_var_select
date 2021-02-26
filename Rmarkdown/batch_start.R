@@ -18,7 +18,8 @@ batch_start <- function(nonrel_parms, d, batch_sz, extra_batch, opt_fun, rel_par
       parms[idx + 1] <- parms[idx + 1] + 1
       optObj <- opt_fun(parms, ...)
       parms <- optObj$covparms
-      cat("step", i, "non-zero parm indices are", which(parms[2 : (d + 1)] > 0), "\n")
+      cat("step", i, "non-zero parm indices are", which(parms[2 : (d + 1)] > 0),
+          "vals are", parms[c(T, parms[2 : (d + 1)] > 0, T)], "\n")
     }
     # for(i in 1 : extra_batch)
     # {
