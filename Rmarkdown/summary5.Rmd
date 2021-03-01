@@ -20,9 +20,12 @@ In this markdown, I would like to check the derivative w.r.t. the squared releva
 Answers:
 
 * No, parameters **can return to non-zero from zero values**
-* Seems not as efficient as using relevance parameters
-    + without penalty, fake relevance parameters converge to zero slower
-    + if we don't ignore the zero-valued parameters, the computation cost will be much higher
+* Perhaps yes but there are advantages and disadvantages compared with using the relevance parameters. 
+* Advantages:
+    + able to adjust the sparsity through the penalty parameter, i.e., starting with a large penalty parameter and gradually reducing it seems feasible \\
+* Disadvantages:
+    + without penalty, fake relevance parameters converge to zero slower compared with using the relevance parameters
+    + the computation cost will be much higher since we may need to compute the derivatives w.r.t. all/many parameters, not ignoring the zero-valued ones
 
 ## Preparation
 Need to install a modified version of the GpGp R package.

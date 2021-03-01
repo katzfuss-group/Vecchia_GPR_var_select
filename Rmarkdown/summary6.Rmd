@@ -34,7 +34,7 @@ source("batch_start.R")
 ```{r simulate GP in d dimensions}
 set.seed(123)
 n <- 1e4
-d <- 1e2
+d <- 1e3
 r <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))
 sigmasq <- 1.0 # variance
 tausq <- 0.05^2 # nugget
@@ -64,42 +64,39 @@ opt_func_wrapper <- function(X, ...) {
   quad_cdsc_L1(start_parms = X, ...)
 }
 ```
-Do `batch_start` with `lambda = 0` for two times. 
+Do `batch_start` with `lambda = 0`. 
 ```{r two times batch_start}
 startTime <- Sys.time()
 
 theta <- c(sigmasqInit, rep(1, d), tausqInit) # used for initial ordering of locs
-for(i in 1 : 2)
-{
-  if(all(theta[2 : (d + 1)] == 0))
-    stop("All range parameters are zero. Cannot perform reordering\n")
-  locsScal <- locs %*% diag(theta[2 : (d + 1)])
-  odr <- GpGp::order_maxmin(locsScal)
-  yOdr <- y[odr]
-  locsScalOdr <- locsScal[odr, , drop = F]
-  locsOdr <- locs[odr, , drop = F]
-  XOdr <- X[odr, , drop = F]
-  NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
-  
-  objfun <- function(theta, locs){
-    GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
-                                  yOdr, XOdr, locs, NNarray)
-  }
-  objfun_gdfm <- function(theta, locs){
-    GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_relevance",
-                                            yOdr, XOdr, locs, NNarray)
-  }
-  
-  optObj <- batch_start(nonrel_parms = theta[-c(2 : (d + 1))], d = d, batch_sz = 1, 
-              extra_batch = 0, opt_fun = opt_func_wrapper, 
-              rel_parms = rep(0, d), likfun = objfun, 
-              likfunGDFIM = objfun_gdfm, locs = locsOdr, p = 1, lambda = 0, 
-              epsl = 1e-3, silent = T, max_iter = 1, lb_nonrel_parms = lb_nonrel_parms)
-  theta <- optObj$covparms
+if(all(theta[2 : (d + 1)] == 0))
+  stop("All range parameters are zero. Cannot perform reordering\n")
+locsScal <- locs %*% diag(theta[2 : (d + 1)])
+odr <- GpGp::order_maxmin(locsScal)
+yOdr <- y[odr]
+locsScalOdr <- locsScal[odr, , drop = F]
+locsOdr <- locs[odr, , drop = F]
+XOdr <- X[odr, , drop = F]
+NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
+
+objfun <- function(theta, locs){
+  GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
+                                yOdr, XOdr, locs, NNarray)
+}
+objfun_gdfm <- function(theta, locs){
+  GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_relevance",
+                                          yOdr, XOdr, locs, NNarray)
 }
 
+optObj <- batch_start(nonrel_parms = theta[-c(2 : (d + 1))], d = d, batch_sz = 1, 
+            extra_batch = 0, opt_fun = opt_func_wrapper, 
+            rel_parms = rep(0, d), likfun = objfun, 
+            likfunGDFIM = objfun_gdfm, locs = locsOdr, p = 1, lambda = 0, 
+            epsl = 1e-3, silent = T, max_iter = 1, lb_nonrel_parms = lb_nonrel_parms)
+theta <- optObj$covparms
+
 endTime <- Sys.time()
-cat("Two times of fitting without penalty used", 
+cat("Batch start for variable selection used", 
     as.numeric(difftime(endTime, startTime, units = "secs")), "seconds\n")
 ```
 See which indices of `theta` are greater than zero and what are their values.
