@@ -10,9 +10,18 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## All SR at a small value
 
-We want to evaluate the gradients w.r.t. the squared relevance parameters at zeros. On the other hand, if all (squared) relevance parameters are zero, it is a singularity point. Therefore, let's first see what the gradients w.r.t. the SR parameters look like when they are all equal to a small value, e.g., `1e-4`.
+After several experiments, this procedure works very well:
 
-### Preparation
+1. Initialize all SRs close to zero, I chose `1e-8`. Notice that all SRs at zero gives a distance of zero and the derivatives and FIM become not informative.
+2. Compute derivatives for all SRs
+3. Choose top `k` SRs based on their derivatives I chose `k` as 20
+4. Find the nearest neighbor array based on the selected SRs
+5. Run optimization for some iterations. I chose `20`
+6. Compute derivatives for all SRs with the selected SRs equal to their optimized values and unselected ones equal to `0`
+7. Select a subset of the previous selected SRs with non-zero values, whose size is denoted by `kSub` and choose `k - kSub` SRs that are `0` based on their derivatives
+8. Go to step 4 until satisfaction. I did it `5` times
+
+## Preparation
 Need to install a modified version of the GpGp R package.
 ```{r install the moderated GpGp Pkg}
 devtools::install_github("https://github.com/SamCao1991/GpGp.git")
@@ -20,113 +29,11 @@ library(GpGp)
 source("quad_cdsc_L1.R")
 ```
 
-### Simulate GP in $\mathbb{R}^{d}$
-```{r simulate GP in d dimensions}
-set.seed(123)
-n <- 1e4
-d <- 20
-rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
-sigmasq <- 1.0 # variance
-tausq <- 0.05^2 # nugget
-locs <- lhs::randomLHS(n, d)
-locs <- locs * outer(rep(sqrt(n), n), 1 / sqrt(colSums(locs^2)))
-covM <- GpGp::matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
-cholM <- t(chol(covM))
-y <- as.vector(cholM %*% rnorm(n))
-X <- matrix(1, n, 1)
-rm(covM, cholM)
-```
-Notice that we still have only 5 non-zero relevance parameters, the first five. Define the conditioning size `m`.
-```{r conditioning size}
-m <- 100
-```
-
-### Gradient evaluation 
-Define initial values for all parameters. Notice that here I use the squared relevance parameters.
-```{r init val for non-rel parms-penalty parms-opt bounds}
-sigmasqInit <- 0.25
-tausqInit <- 0.01^2
-rSqInit <- rep(1e-8, d)
-```
-`lb_nonrel_parms` defines the lower limit of $\sigma^2$ and $\tau^2$ during the optimization using `quad_cdsc_L1`.
-
-Estimate the gradients for all SRs at somewhere very close to zero.
-```{r}
-theta <- c(sigmasqInit, rSqInit, tausqInit)
-locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
-odr <- GpGp::order_maxmin(locsScal)
-yOdr <- y[odr]
-locsScalOdr <- locsScal[odr, , drop = F]
-locsOdr <- locs[odr, , drop = F]
-XOdr <- X[odr, , drop = F]
-NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
-gradObj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
-                                                   "matern25_scaledim_sqrelevance", yOdr, XOdr, locsOdr, NNarray)
-```
-Select `k` SR parameters that have the largest gradients.
-```{r top k grad}
-k <- 10
-idxTopk <- order(gradObj$grad[2 : (d + 1)], decreasing = T)[1 : k]
-dSub <- length(idxTopk)
-```
-Run optimization with covariates in `idxTopk`. Now instead of SR, the relevance parameters are used.
-```{r opt with top k}
-theta <- c(sigmasqInit, rep(0.1, length(idxTopk)), tausqInit)
-crtIter <- 1
-maxIter <- 100
-lb_nonrel_parms <- c(0.01^2, 0.01^2) 
-locsTopk <- locs[, idxTopk, drop = F]
-while(maxIter >= crtIter)
-{
-  locsScal <- locsTopk[, drop = F] %*% diag(theta[2 : (dSub + 1)])
-  odr <- GpGp::order_maxmin(locsScal)
-  yOdr <- y[odr]
-  locsScalOdr <- locsScal[odr, , drop = F]
-  locsOdr <- locsTopk[odr, , drop = F]
-  XOdr <- X[odr, , drop = F]
-  NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
-  # Define functions for parameter estimation in the outer loop
-  objfun <- function(theta, locsOdr){
-    GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
-                                            yOdr, XOdr, locsOdr, 
-                                            NNarray)
-  }
-  objfun_gdfm <- function(theta, locsOdr){
-    GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_relevance",
-                                            yOdr, XOdr, locsOdr, 
-                                            NNarray)
-  }
-  
-  theta <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, theta, 0, 1e-3, silent = T, 
-               max_iter = min(crtIter, maxIter - crtIter + 1), max_iter2 = 40, 
-               lb_nonrel_parms = lb_nonrel_parms)$covparms
-  cat("quad_cdsc_L1 fit iter", crtIter, ": estimated parms = ", theta, "\n")
-  crtIter <- crtIter + min(crtIter, maxIter - crtIter + 1)
-}
-idxTopk
-thetaCp <- theta
-thetaCp
-```
-Now see the derivatives w.r.t. all SR parameters.
-```{r check grad again}
-theta <- c(sigmasqInit, rep(0, d), tausqInit)
-theta[c(1, 1 + idxTopk, 2 + d)] <- thetaCp
-locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
-odr <- GpGp::order_maxmin(locsScal)
-yOdr <- y[odr]
-locsScalOdr <- locsScal[odr, , drop = F]
-locsOdr <- locs[odr, , drop = F]
-XOdr <- X[odr, , drop = F]
-NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
-gradObj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
-                                                   "matern25_scaledim_sqrelevance", yOdr, XOdr, locsOdr, NNarray)
-```
-
-### Same experiment but with $d = 1000$
+## Experiment
 
 ```{r exp with d equal to 1e3}
 n <- 1e4
-d <- 40
+d <- 1e3
 m <- 100
 rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
 sigmasq <- 1.0 # variance
@@ -189,22 +96,22 @@ for(i in 1 : 5)
                lb_nonrel_parms = lb_nonrel_parms)$covparms
   cat(thetaTmp, "\n")
   
-  thetaTmp[2 : (1 + nTrue)] <- sqrt(thetaTmp[2 : (1 + nTrue)])
-  objfun <- function(theta, locsOdr){
-    GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
-                                            yOdr, XOdr, locsOdr, 
-                                            NNarray)
-  }
-  objfun_gdfm <- function(theta, locsOdr){
-    GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_relevance",
-                                            yOdr, XOdr, locsOdr, 
-                                            NNarray)
-  }
-  thetaTmp <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, thetaTmp, 0, 1e-3, silent = T, 
-               max_iter = 20, max_iter2 = 40, 
-               lb_nonrel_parms = lb_nonrel_parms)$covparms
-  thetaTmp[2 : (1 + nTrue)] <- thetaTmp[2 : (1 + nTrue)]^2
-  cat(thetaTmp, "\n")
+  # thetaTmp[2 : (1 + nTrue)] <- sqrt(thetaTmp[2 : (1 + nTrue)])
+  # objfun <- function(theta, locsOdr){
+  #   GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
+  #                                           yOdr, XOdr, locsOdr, 
+  #                                           NNarray)
+  # }
+  # objfun_gdfm <- function(theta, locsOdr){
+  #   GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_relevance",
+  #                                           yOdr, XOdr, locsOdr, 
+  #                                           NNarray)
+  # }
+  # thetaTmp <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, thetaTmp, 0, 1e-3, silent = T, 
+  #              max_iter = 20, max_iter2 = 40, 
+  #              lb_nonrel_parms = lb_nonrel_parms)$covparms
+  # thetaTmp[2 : (1 + nTrue)] <- thetaTmp[2 : (1 + nTrue)]^2
+  # cat(thetaTmp, "\n")
   
   theta <- rep(0, d + 2)
   theta[c(1, idx, d + 2)] <- thetaTmp
@@ -212,28 +119,7 @@ for(i in 1 : 5)
 endTime <- Sys.time()
 cat("Time used for estimation is", as.numeric(difftime(endTime, startTime, units = "secs")), "seconds\n")
 ```
-Positive gradients' indices are:
-```{r posi grad d equal to 1e3}
-which(gradObj$grad > 0)
-```
-Values are:
-```{r posi grad val d equal to 1e3}
-gradObj$grad[which(gradObj$grad > 0)]
-```
-Negative gradients' indices are:
-```{r nega grad d equal to 1e3}
-which(gradObj$grad < 0)
-```
-Values are:
-```{r nega grad val d equal to 1e3}
-gradObj$grad[which(gradObj$grad < 0)]
-```
 
-### Summary
-It seems that there is some useful information in the gradients w.r.t. the SQ paramters:
-
-* When `d = 20`, only the more significant ones, e.g., the first three SQ parameters are selected. The less significant ones, e.g., the fourth and fifth are not selected. None of the the irrelevant ones are selected, which is nice. 
-* When `d = 1e3`, all SQ parameters have positive gradients. We cannot do variable selection based on positiveness/negativeness. However, if we look at the magnitudes, the first four covariates have the top four magnitudes. Perhaps we can select the first several with the largest gradients to use in a second-stage variable selection.
 
 
 
