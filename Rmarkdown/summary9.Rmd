@@ -1,5 +1,5 @@
 ---
-title: "summary8"
+title: "summary9"
 author: "Jian Cao"
 output: html_document
 ---
@@ -19,7 +19,7 @@ After several experiments, this procedure works very well:
 5. Run optimization for some iterations. I chose `20`
 6. Compute derivatives for all SRs with the selected SRs equal to their optimized values and unselected ones equal to `0`
 7. Select a subset of the previous selected SRs with non-zero values, whose size is denoted by `kSub` and choose `k - kSub` SRs that are `0` based on their derivatives
-8. Go to step 4 until satisfaction. I did it `5` times
+8. Go to step 4 until satisfaction. I did it `3` times
 
 ## Preparation
 Need to install a modified version of the GpGp R package.
@@ -50,9 +50,9 @@ sigmasqInit <- 0.25
 tausqInit <- 0.01^2
 lb_nonrel_parms <- c(0.01^2, 0.01^2) 
 theta <- c(sigmasqInit, rep(1e-8, d), tausqInit)
-nTrue <- 20
+nTrue <- 10
 startTime <- Sys.time()
-for(i in 1 : 5)
+for(i in 1 : 3)
 {
   idxLocs <- theta[2 : (d + 1)] > 0
   locsRel <- locs[, idxLocs, drop = F]
@@ -65,6 +65,7 @@ for(i in 1 : 5)
   NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
   gradObj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
                                                      "matern25_scaledim_sqrelevance", yOdr, XOdr, locsOdr, NNarray)
+  # select covariates
   if(i == 1)
   {
     idx <- 1 + order(gradObj$grad[2 : (d + 1)], decreasing = T)[1 : nTrue]
@@ -81,6 +82,7 @@ for(i in 1 : 5)
   thetaTmp <- theta[c(1, idx, 2 + d)]
   locsOdr <- locsOdr[, idx - 1, drop = F]
   
+  # opt with SR parameters
   objfun <- function(theta, locsOdr){
     GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_sqrelevance",
                                             yOdr, XOdr, locsOdr, 
@@ -96,6 +98,7 @@ for(i in 1 : 5)
                lb_nonrel_parms = lb_nonrel_parms)$covparms
   cat(thetaTmp, "\n")
   
+  # opt with relevance parameters
   thetaTmp[2 : (1 + nTrue)] <- sqrt(thetaTmp[2 : (1 + nTrue)])
   objfun <- function(theta, locsOdr){
     GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
@@ -107,11 +110,26 @@ for(i in 1 : 5)
                                             yOdr, XOdr, locsOdr,
                                             NNarray)
   }
-  thetaTmp <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, thetaTmp, 0, 1e-3, silent = T,
-               max_iter = 20, max_iter2 = 40,
-               lb_nonrel_parms = lb_nonrel_parms)$covparms
+  crtIter <- 1
+  maxIter <- 100
+  while(maxIter >= crtIter)
+  {
+    locsRel <- locs[, idx - 1, drop = F]
+    locsScal <- locsRel %*% diag(thetaTmp[2 : (1 + nTrue)])
+    odr <- GpGp::order_maxmin(locsScal)
+    yOdr <- y[odr]
+    locsScalOdr <- locsScal[odr, , drop = F]
+    locsOdr <- locsRel[odr, , drop = F]
+    XOdr <- X[odr, , drop = F]
+    NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
+    
+    thetaTmp <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, thetaTmp, 1, 1e-3, silent = T, 
+                 max_iter = min(crtIter, maxIter - crtIter + 1), max_iter2 = 40, 
+                 lb_nonrel_parms = lb_nonrel_parms)$covparms
+    cat(c(thetaTmp[1], thetaTmp[2 : (1 + nTrue)]^2, thetaTmp[length(thetaTmp)]), "\n")
+    crtIter <- crtIter + min(crtIter, maxIter - crtIter + 1)
+  }
   thetaTmp[2 : (1 + nTrue)] <- thetaTmp[2 : (1 + nTrue)]^2
-  cat(thetaTmp, "\n")
   
   theta <- rep(0, d + 2)
   theta[c(1, idx, d + 2)] <- thetaTmp

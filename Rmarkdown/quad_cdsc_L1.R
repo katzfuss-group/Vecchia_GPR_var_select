@@ -144,7 +144,7 @@ quad_cdsc_L1_brute <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda
   if(lambda < 0 || epsl < 0)
     stop("lambda and epsl should both be greater than zero\n")
   lb_parms <- c(lb_nonrel_parms[1], rep(0, ncol(locs)), lb_nonrel_parms[-1])
-  if(any(start_parms < lb_parms))
+  if(any(start_parms < lb_parms - 1e-8))
     stop("some coefficient in start_parms is smaller than its lower bound")
   parms <- start_parms
   nloc <- ncol(locs)
