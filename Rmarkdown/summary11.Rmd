@@ -1,0 +1,149 @@
+---
+title: "summary11"
+author: "Jian Cao"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## All SR at a small value
+
+After several experiments, this procedure works very well:
+
+1. Initialize all SRs close to zero, I chose `1e-8`. Notice that all SRs at zero gives a distance of zero and the derivatives and FIM become not informative.
+2. Compute derivatives for all SRs
+3. Choose top `k` SRs based on their derivatives I chose `k` as 20
+4. Find the nearest neighbor array based on the selected SRs
+5. Run optimization for some iterations. I chose `20`
+6. Compute derivatives for all SRs with the selected SRs equal to their optimized values and unselected ones equal to `0`
+7. Select a subset of the previous selected SRs with non-zero values, whose size is denoted by `kSub` and choose `k - kSub` SRs that are `0` based on their derivatives
+8. Go to step 4 until satisfaction. I did it `3` times
+
+## Preparation
+Need to install a modified version of the GpGp R package.
+```{r install the moderated GpGp Pkg}
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+source("quad_cdsc_L1.R")
+```
+
+## Stopping condition
+```{r stopping condition}
+stop_cond <- function(objOld, objNew, dOld, dNew)
+{
+  BICOld <- log(n) * dOld + 2 * objOld
+  BICNew <- log(n) * dNew + 2 * objNew
+  return(BICNew > BICOld)
+} 
+```
+
+## Experiment
+`quad_cdsc_L1` computes gradients w.r.t. zero parameters as well while `quad_cdsc_L1_brute` ignores zero parameters.
+```{r exp with d equal to 1e3}
+n <- 1e4
+d <- 1e3
+m <- 100
+k <- 1
+rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+locs <- lhs::randomLHS(n, d)
+locs <- locs * outer(rep(sqrt(n), n), 1 / sqrt(colSums(locs^2)))
+covM <- GpGp::matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+X <- matrix(1, n, 1)
+rm(covM, cholM)
+
+sigmasqInit <- 0.25
+tausqInit <- 0.01^2
+lb_nonrel_parms <- c(0.01^2, 0.01^2) 
+theta <- c(sigmasqInit, rep(1e-8, d), tausqInit)
+idx <- c()
+objOld <- Inf
+startTime <- Sys.time()
+while(length(idx) <= d - k)
+{
+  idxLocs <- theta[2 : (d + 1)] > 0
+  locsRel <- locs[, idxLocs, drop = F]
+  locsScal <- locsRel %*% diag(sqrt(theta[2 : (d + 1)][idxLocs]), sum(idxLocs), sum(idxLocs))
+  odr <- GpGp::order_maxmin(locsScal)
+  yOdr <- y[odr]
+  locsScalOdr <- locsScal[odr, , drop = F]
+  locsOdr <- locs[odr, , drop = F]
+  XOdr <- X[odr, , drop = F]
+  NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
+  gradObj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
+                                                     "matern25_scaledim_sqrelevance", yOdr, XOdr, locsOdr, NNarray)
+  # select covariates
+  if(length(idx) == 0)
+  {
+    idxNew <- 1 + order(gradObj$grad[2 : (d + 1)], decreasing = T)[1 : k]
+  }else
+  {
+    odrDec <- order(gradObj$grad[2 : (d + 1)], decreasing = T)
+    idxNew <- c(idx, 1 + setdiff(odrDec, idx - 1)[1 : k])
+  }
+  cat(idxNew, "\n")
+  
+  thetaTmp <- theta[c(1, idxNew, 2 + d)]
+  locsOdr <- locsOdr[, idxNew - 1, drop = F]
+  
+  # opt with SR parameters
+  objfun <- function(theta, locsOdr){
+    GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdr, 
+                                            NNarray)
+  }
+  objfun_gdfm <- function(theta, locsOdr){
+    GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdr, 
+                                            NNarray)
+  }
+  optObj <- quad_cdsc_L1_brute(objfun, objfun_gdfm, locsOdr, 1, thetaTmp, 0, 1e-3, silent = T, 
+               max_iter = 10, max_iter2 = 40, 
+               lb_nonrel_parms = lb_nonrel_parms)
+  thetaTmp <- optObj$covparms
+  cat(thetaTmp, "\n")
+  
+  # opt with relevance parameters
+  thetaTmp[2 : (1 + length(idxNew))] <- sqrt(thetaTmp[2 : (1 + length(idxNew))])
+  objfun <- function(theta, locsOdr){
+    GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
+                                            yOdr, XOdr, locsOdr,
+                                            NNarray)
+  }
+  objfun_gdfm <- function(theta, locsOdr){
+    GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_relevance",
+                                            yOdr, XOdr, locsOdr,
+                                            NNarray)
+  }
+  optObj <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, thetaTmp, 0, 1e-3, silent = T,
+               max_iter = 20, max_iter2 = 40,
+               lb_nonrel_parms = lb_nonrel_parms)
+  thetaTmp <- optObj$covparms
+  thetaTmp[2 : (1 + length(idxNew))] <- thetaTmp[2 : (1 + length(idxNew))]^2
+  cat(thetaTmp, "\n")
+  objNew <- optObj$obj
+  if(stop_cond(objOld, objNew, length(idx), length(idxNew)))
+    break;
+  
+  idx <- idxNew
+  objOld <- objNew
+  theta <- rep(0, d + 2)
+  theta[c(1, idx, d + 2)] <- thetaTmp
+}
+cat(idx, "\n")
+cat(theta[c(1, idx, d + 2)], "\n")
+endTime <- Sys.time()
+cat("Time used for estimation is", as.numeric(difftime(endTime, startTime, units = "secs")), "seconds\n")
+```
+
+
+
+
+
+
+
