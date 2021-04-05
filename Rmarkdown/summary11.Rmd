@@ -8,18 +8,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## All SR at a small value
-
-After several experiments, this procedure works very well:
-
-1. Initialize all SRs close to zero, I chose `1e-8`. Notice that all SRs at zero gives a distance of zero and the derivatives and FIM become not informative.
-2. Compute derivatives for all SRs
-3. Choose top `k` SRs based on their derivatives I chose `k` as 20
-4. Find the nearest neighbor array based on the selected SRs
-5. Run optimization for some iterations. I chose `20`
-6. Compute derivatives for all SRs with the selected SRs equal to their optimized values and unselected ones equal to `0`
-7. Select a subset of the previous selected SRs with non-zero values, whose size is denoted by `kSub` and choose `k - kSub` SRs that are `0` based on their derivatives
-8. Go to step 4 until satisfaction. I did it `3` times
+## Overview
+Use the gradient w.r.t. SRs to select variables as in forward selection. The stopping criteria is BIC. `k` is the number of variables selected each time. Currently, `k` is set to one. 
 
 ## Preparation
 Need to install a modified version of the GpGp R package.
@@ -66,6 +56,7 @@ objOld <- Inf
 startTime <- Sys.time()
 while(length(idx) <= d - k)
 {
+  startTimeNNarrray <- Sys.time()
   idxLocs <- theta[2 : (d + 1)] > 0
   locsRel <- locs[, idxLocs, drop = F]
   locsScal <- locsRel %*% diag(sqrt(theta[2 : (d + 1)][idxLocs]), sum(idxLocs), sum(idxLocs))
@@ -75,8 +66,18 @@ while(length(idx) <= d - k)
   locsOdr <- locs[odr, , drop = F]
   XOdr <- X[odr, , drop = F]
   NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
+  endTimeNNarrray <- Sys.time()
+  cat("Finding NNarray used", 
+      as.numeric(difftime(endTimeNNarrray, startTimeNNarrray, units = "secs")), 
+      "seconds\n")
+  startTimeGrad <- Sys.time()
   gradObj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
-                                                     "matern25_scaledim_sqrelevance", yOdr, XOdr, locsOdr, NNarray)
+                                                     "matern25_scaledim_sqrelevance", yOdr, 
+                                                     XOdr, locsOdr, NNarray)
+  endTimeGrad <- Sys.time()
+  cat("Computing gradient used", 
+      as.numeric(difftime(endTimeGrad, startTimeGrad, units = "secs")), 
+      "seconds\n")
   # select covariates
   if(length(idx) == 0)
   {
@@ -102,9 +103,14 @@ while(length(idx) <= d - k)
                                             yOdr, XOdr, locsOdr, 
                                             NNarray)
   }
+  startTimeOpt1 <- Sys.time()
   optObj <- quad_cdsc_L1_brute(objfun, objfun_gdfm, locsOdr, 1, thetaTmp, 0, 1e-3, silent = T, 
                max_iter = 10, max_iter2 = 40, 
                lb_nonrel_parms = lb_nonrel_parms)
+  endTimeOpt1 <- Sys.time()
+  cat("Opt with SR used", 
+      as.numeric(difftime(endTimeOpt1, startTimeOpt1, units = "secs")), 
+      "seconds\n")
   thetaTmp <- optObj$covparms
   cat(thetaTmp, "\n")
   
@@ -120,9 +126,14 @@ while(length(idx) <= d - k)
                                             yOdr, XOdr, locsOdr,
                                             NNarray)
   }
+  startTimeOpt2 <- Sys.time()
   optObj <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, thetaTmp, 0, 1e-3, silent = T,
                max_iter = 20, max_iter2 = 40,
                lb_nonrel_parms = lb_nonrel_parms)
+  endTimeOpt2 <- Sys.time()
+  cat("Opt with rel used", 
+      as.numeric(difftime(endTimeOpt2, startTimeOpt2, units = "secs")), 
+      "seconds\n")
   thetaTmp <- optObj$covparms
   thetaTmp[2 : (1 + length(idxNew))] <- thetaTmp[2 : (1 + length(idxNew))]^2
   cat(thetaTmp, "\n")
