@@ -240,6 +240,135 @@ quad_cdsc_L1_brute <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda
   return(list(covparms = parms, obj = obj, betahat = likobj$betahat, neval = i + 1))
 }
 
+
+#' Coordinate descent using the 2nd order approximation of the log-likelihood 
+#' Penalty amounts to the SCAD approximation of the BIC criteria with a = 3.7
+#' 
+#' @param likfun likelihood function, returns log-likelihood
+#' @param likfunGDFIM returns log-likelihood, gradient, and FIM
+#' @param locs the n-by-d location matrix 
+#' @param p the number of columns in the design matrix X
+#' @param start_parms starting values of parameters
+#' @param epsl step size when coordinate descent does not reduce the obj func
+#' @param silent TRUE/FALSE for suppressing output
+#' @param convtol convergence tolerance on step dot grad
+#' @param convtol2 convergence tolerance on the step of one coordinate descent epoch
+#' @param max_iter maximum number of 2nd order approximations
+#' @param max_iter2 maximum number of epochs in coordinate descent
+#' @param lb_nonrel_parms the lower bounds for non-relevance parameters
+quad_cdsc_L1_SCAD <- function(likfun, likfunGDFIM, locs, p, start_parms, 
+                         epsl, silent = FALSE, convtol = 1e-4, 
+                         convtol2 = 1e-4, max_iter = 40, max_iter2 = 40, 
+                         lb_nonrel_parms = rep(0, length(start_parms) - ncol(locs)))
+{
+  if(epsl < 0)
+    stop("epsl should be greater than zero\n")
+  lb_parms <- c(lb_nonrel_parms[1], rep(0, ncol(locs)), lb_nonrel_parms[-1])
+  if(any(start_parms < lb_parms - 1e-8))
+  {
+    stop("some coefficient in start_parms is smaller than its lower bound")
+  }
+  a <- 3.7 # suggested by Fan and Li (2001)
+  n <- nrow(locs) # num of observations
+  lambda <- sqrt(log(n) / (a + 1)) # lambda value s.t. max penalty is BIC
+  parms <- start_parms
+  nloc <- ncol(locs)
+  idxPosiLocs <- parms[2 : (1 + nloc)] > 0
+  idxPosiParm <- c(T, idxPosiLocs, rep(T, length(parms) - 1 - nloc))
+  parmsPosi <- parms[idxPosiParm]
+  # check if the relevance parameters are all too close to zero
+  if(sum(idxPosiLocs) == 0)
+  {
+    cat("quad_cdsc_L1 reached zero for all relevance parameters\n")
+    return(list(covparms = parms, obj = NA, betahat = rep(0, p), neval = 0))
+  }
+  likobj <- likfunGDFIM(parmsPosi, locs[, idxPosiLocs, drop = F])
+  for(i in 1 : max_iter)
+  {
+    # check for Inf, NA, or NaN
+    if( !GpGp::test_likelihood_object(likobj) ){
+      stop("inf or na or nan in likobj\n")
+    }
+    
+    obj <- -likobj$loglik + SCAD_pen(parmsPosi[2 : (1 + sum(idxPosiLocs))], lambda, a)
+    grad <- -likobj$grad
+    grad[2 : (1 + sum(idxPosiLocs))] <- grad[2 : (1 + sum(idxPosiLocs))] + 
+      dSCAD_pen(parmsPosi[2 : (1 + sum(idxPosiLocs))], lambda, a)
+    H <- likobj$info 
+    H[2 : (1 + sum(idxPosiLocs)), 2 : (1 + sum(idxPosiLocs))] <- 
+      H[2 : (1 + sum(idxPosiLocs)), 2 : (1 + sum(idxPosiLocs))] - 
+      ddSCAD_pen(parmsPosi[2 : (1 + sum(idxPosiLocs))], lambda, a)
+    if(!silent)
+    {
+      cat(paste0("Iter ", i, ": \n"))
+      cat("pars = ",  paste0(round(parms, 4)), "  \n" )
+      cat(paste0("obj = ", round(obj, 6), "  \n"))
+      cat("\n")
+    }
+    # coordinate descent
+    b <- grad - as.vector(H %*% parmsPosi)
+    coord_des_obj <- cdsc_quad_posi(H, b, parmsPosi, silent, 
+                                    convtol2, max_iter2, 1e6, lb_parms[idxPosiParm])
+    # check if the relevance parameters are all zero
+    if(sum(coord_des_obj$parms[2 : (1 + sum(idxPosiLocs))]) == 0)
+      coord_des_obj$code <- 2
+    
+    # check if obj func decreases
+    if(coord_des_obj$code < 2) # parms_new is valid
+    {
+      stepSz <- step_Armijo(parmsPosi, obj, grad, coord_des_obj$parms - parmsPosi, 1e-4, 
+                            function(x){- likfun(x, locs[, idxPosiLocs, drop = F])$loglik + 
+                                SCAD_pen(x[2 : (1 + sum(idxPosiLocs))], lambda, a)})
+      if(stepSz < 0)
+        grad_des <- T
+      else
+      {
+        parmsNew <- parms
+        parmsNew[idxPosiParm] <- parmsNew[idxPosiParm] + stepSz * (coord_des_obj$parms - parmsPosi)
+        grad_des <- F
+      }
+    }
+    else
+      grad_des <- T
+    
+    if(grad_des)
+    {
+      parmsNewPosiTmp <- step_grad_Armijo(parms[idxPosiParm], c(2 : (sum(idxPosiParm) - 1)), 
+                                          obj, grad, lb_parms[idxPosiParm], 1e-3, 
+                                          function(x){- likfun(x, locs[, idxPosiLocs, drop = F])$loglik + 
+                                              SCAD_pen(x[2 : (1 + sum(idxPosiLocs))], lambda, a)},
+                                          function(x){sum(x[2 : (1 + sum(idxPosiLocs))]) > 1e-3})
+      if(all(parmsNewPosiTmp == -1))
+      {
+        cat("gradient descent cannot find proper parameter values\n")
+        return(list(covparms = lb_parms, obj = NA, betahat = rep(0, p), neval = i))
+      }
+      
+      parmsNew <- parms
+      parmsNew[idxPosiParm] <- parmsNewPosiTmp
+      cat("Gradient descent is used\n")
+    }
+    
+    if(!silent)
+      cat("\n")
+    
+    idxPosiLocs <- parmsNew[2 : (1 + nloc)] > 0
+    idxPosiParmNew <- c(T, idxPosiLocs, rep(T, length(parmsNew) - 1 - nloc))
+    parmsNewPosi <- parmsNew[idxPosiParmNew]
+    likobjNew <- likfunGDFIM(parmsNewPosi, locs[, idxPosiLocs, drop = F])
+    objNew <- - likobjNew$loglik + SCAD_pen(parmsNewPosi[2 : (1 + sum(idxPosiLocs))], lambda, a)
+    if((objNew > obj) || 
+       (abs(sum((parmsNew - parms)[idxPosiParm] * (grad))) < convtol))
+      break
+    idxPosiParm <- idxPosiParmNew
+    parms <- parmsNew
+    parmsPosi <- parmsNewPosi
+    likobj <- likobjNew
+    obj <- objNew
+  }
+  return(list(covparms = parms, obj = obj, betahat = likobj$betahat, neval = i + 1))
+}
+
 #' Coordinate descent for a quadratic function in the positive domain 
 #' 
 #' @param A 2nd order coefficient matrix (\frac{1}{2} x^\top A x)
@@ -331,4 +460,45 @@ step_grad_Armijo <- function(parms0, idxRel, v0, d0, lb, c, obj_func, arg_check)
       return(parms)
   }
   return(-1)
+}
+
+SCAD_pen <- function(parms, lambda, a)
+{
+  secThres <- a * lambda # second threshold
+  pen <- 0
+  for(i in 1 : length(parms))
+  {
+    absParm <- abs(parms[i])
+    if(absParm < lambda)
+      pen <- pen + lambda * absParm
+    else if(absParm < secThres)
+      pen <- pen - (absParm^2 - 2 * secThres * absParm + lambda^2) / (2 * a - 2)
+    else
+      pen <- pen + (a + 1) * lambda^2 / 2
+  }
+  return(pen)
+}
+
+dSCAD_pen <- function(parms, lambda, a)
+{
+  tmpVal <- a * lambda
+  dpen <- rep(NA, length(parms))
+  for(i in 1 : length(parms))
+  {
+    if(parms[i] < lambda)
+      dpen[i] <- lambda
+    else
+      dpen[i] <- max(0, (tmpVal - parms[i])) / (a - 1)
+  }
+  return(dpen)
+}
+
+ddSCAD_pen <- function(parms, lambda, a)
+{
+  d <- length(parms)
+  tmpVal <- a * lambda
+  ddpen <- matrix(0, d, d)
+  for(i in 1 : d)
+    if(parms[i] > lambda && parms[i] < tmpVal)
+      ddpen[i, i] = - 1 / (a - 1)
 }
