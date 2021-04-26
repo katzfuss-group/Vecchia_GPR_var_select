@@ -1,0 +1,192 @@
+---
+title: "summary14"
+author: "Jian Cao"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+In this summary, I show that covariates can be deselected. First run, we comment out the BIC stopping criteria and change it to `r` times variable selection. Second run, we re-activate BIC criteria. The covariates are correlated, with a correlation of `rho`. Use the gradient w.r.t. SRs to select variables as in forward selection. The stopping criteria is BIC. `k` is the number of variables selected each time. 
+
+## Preparation
+Need to install a modified version of the GpGp R package.
+```{r install the moderated GpGp Pkg}
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+library(mvtnorm)
+source("quad_cdsc_L1.R")
+set.seed(123)
+```
+
+## Stopping condition
+```{r stopping condition}
+stop_cond <- function(objOld, objNew, dOld, dNew)
+{
+  BICOld <- log(n) * dOld + 2 * objOld
+  BICNew <- log(n) * dNew + 2 * objNew
+  return(BICNew > BICOld)
+} 
+```
+
+## Experiment
+`quad_cdsc_L1` computes gradients w.r.t. zero parameters as well while `quad_cdsc_L1_brute` ignores zero parameters.
+```{r exp with d equal to 1e3}
+n <- 1e3
+d <- 40
+m <- 100
+k <- 3
+rho <- 0
+rSq <- c(1, 1, 1, 1, 1, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+covM <- matrix(rho, d, d)
+diag(covM) <- 1
+locs <- rmvnorm(n, sigma = covM)
+locs <- locs * outer(rep(sqrt(n), n), 1 / sqrt(colSums(locs^2)))
+covM <- GpGp::matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+X <- matrix(1, n, 1)
+rm(covM, cholM)
+
+sigmasqInit <- 0.25
+tausqInit <- 0.01^2
+lb_nonrel_parms <- c(0.01^2, 0.01^2) 
+theta <- c(sigmasqInit, rep(1e-8, d), tausqInit)
+idx <- c()
+objOld <- Inf
+
+r <- 11
+iter <- 1
+rslt <- list()
+
+startTime <- Sys.time()
+while(length(idx) <= d - k)
+{
+  startTimeNNarrray <- Sys.time()
+  idxLocs <- theta[2 : (d + 1)] > 0
+  locsRel <- locs[, idxLocs, drop = F]
+  locsScal <- locsRel %*% diag(sqrt(theta[2 : (d + 1)][idxLocs]), sum(idxLocs), sum(idxLocs))
+  odr <- GpGp::order_maxmin(locsScal)
+  yOdr <- y[odr]
+  locsScalOdr <- locsScal[odr, , drop = F]
+  locsOdr <- locs[odr, , drop = F]
+  XOdr <- X[odr, , drop = F]
+  NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
+  endTimeNNarrray <- Sys.time()
+  cat("Finding NNarray used", 
+      as.numeric(difftime(endTimeNNarrray, startTimeNNarrray, units = "secs")), 
+      "seconds\n")
+  startTimeGrad <- Sys.time()
+  gradObj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
+                                                     "matern25_scaledim_sqrelevance", yOdr, 
+                                                     XOdr, locsOdr, NNarray)
+  endTimeGrad <- Sys.time()
+  cat("Computing gradient used", 
+      as.numeric(difftime(endTimeGrad, startTimeGrad, units = "secs")), 
+      "seconds\n")
+  # select covariates
+  if(length(idx) == 0)
+  {
+    idxNew <- 1 + order(gradObj$grad[2 : (d + 1)], decreasing = T)[1 : k]
+  }else
+  {
+    odrDec <- order(gradObj$grad[2 : (d + 1)], decreasing = T)
+    idxNew <- c(idx, 1 + setdiff(odrDec, idx - 1)[1 : k])
+  }
+  cat(idxNew, "\n")
+  
+  thetaTmp <- theta[c(1, idxNew, 2 + d)]
+  locsOdr <- locsOdr[, idxNew - 1, drop = F]
+  
+  rslt[[4 * (iter - 1) + 1]] <- idxNew - 1
+  rslt[[4 * (iter - 1) + 2]] <- thetaTmp[-c(1, length(thetaTmp))]
+  
+  # opt with SR parameters
+  objfun <- function(theta, locsOdr){
+    GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdr, 
+                                            NNarray)
+  }
+  objfun_gdfm <- function(theta, locsOdr){
+    GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdr, 
+                                            NNarray)
+  }
+  startTimeOpt1 <- Sys.time()
+  optObj <- quad_cdsc_L1_brute(objfun, objfun_gdfm, locsOdr, 1, thetaTmp, 0, 1e-3, 
+                               silent = T, max_iter = 1, max_iter2 = 40, 
+                               lb_nonrel_parms = lb_nonrel_parms)
+  endTimeOpt1 <- Sys.time()
+  cat("Opt with SR used", 
+      as.numeric(difftime(endTimeOpt1, startTimeOpt1, units = "secs")), 
+      "seconds\n")
+  thetaTmp <- optObj$covparms
+  cat(thetaTmp, "\n")
+  
+  # opt with relevance parameters
+  thetaTmp[2 : (1 + length(idxNew))] <- sqrt(thetaTmp[2 : (1 + length(idxNew))])
+  objfun <- function(theta, locsOdr){
+    GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
+                                            yOdr, XOdr, locsOdr,
+                                            NNarray)
+  }
+  objfun_gdfm <- function(theta, locsOdr){
+    GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_relevance",
+                                            yOdr, XOdr, locsOdr,
+                                            NNarray)
+  }
+  startTimeOpt2 <- Sys.time()
+  optObj <- quad_cdsc_L1(objfun, objfun_gdfm, locsOdr, 1, thetaTmp, 0, 1e-3, silent = T,
+               max_iter = 20, max_iter2 = 40,
+               lb_nonrel_parms = lb_nonrel_parms)
+  endTimeOpt2 <- Sys.time()
+  cat("Opt with rel used", 
+      as.numeric(difftime(endTimeOpt2, startTimeOpt2, units = "secs")), 
+      "seconds\n")
+  thetaTmp <- optObj$covparms
+  thetaTmp[2 : (1 + length(idxNew))] <- thetaTmp[2 : (1 + length(idxNew))]^2
+  cat(thetaTmp, "\n")
+  objNew <- optObj$obj
+  
+  idxZero <- which(thetaTmp[2 : (1 + length(idxNew))] == 0) + 1
+  if(length(idxZero) > 0)
+  {
+    # test
+    thetaTmp2 <- thetaTmp
+    
+    thetaTmp <- thetaTmp[-idxZero]
+    idxNew <- idxNew[-(idxZero - 1)]
+  }
+  
+  rslt[[4 * (iter - 1) + 3]] <- idxNew - 1
+  rslt[[4 * (iter - 1) + 4]] <- thetaTmp[-c(1, length(thetaTmp))]
+  iter = iter + 1
+  
+  
+  # if(stop_cond(objOld, objNew, length(idx), length(idxNew)))
+  #   break;
+  
+  if(iter == r)
+    break
+  
+  idx <- idxNew
+  objOld <- objNew
+  theta <- rep(0, d + 2)
+  theta[c(1, idx, d + 2)] <- thetaTmp
+}
+cat(idx, "\n")
+cat(theta[c(1, idx, d + 2)], "\n")
+endTime <- Sys.time()
+cat("Time used for estimation is", as.numeric(difftime(endTime, startTime, units = "secs")), "seconds\n")
+```
+
+
+
+
+
+
+

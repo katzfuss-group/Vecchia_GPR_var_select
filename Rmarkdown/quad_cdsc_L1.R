@@ -60,7 +60,9 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
     # coordinate descent
     b <- grad - as.vector(H %*% parmsPosi)
     coord_des_obj <- cdsc_quad_posi(H, b, parmsPosi, silent, 
-                                    convtol2, max_iter2, 1e6, lb_parms[idxPosiParm])
+                                    convtol2, max_iter2, 1e6, 
+                                    c(lb_parms[1], rep(0, sum(idxPosiLocs)), 
+                                      lb_parms[(2 + ncol(locs)) : length(lb_parms)]))
     # check if the relevance parameters are all zero
     if(sum(coord_des_obj$parms[2 : (1 + sum(idxPosiLocs))]) == 0)
       coord_des_obj$code <- 2
@@ -68,7 +70,16 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
     # check if obj func decreases
     if(coord_des_obj$code < 2) # parms_new is valid
     {
-      stepSz <- step_Armijo(parmsPosi, obj, grad, coord_des_obj$parms - parmsPosi, 1e-4, 
+      alpha <- lb_parms[idxPosiParm] - parmsPosi
+      alpha[alpha > 0] <- 0 # machine precision error correction
+      alpha <- alpha / (coord_des_obj$parms - parmsPosi)
+      alpha[is.na(alpha)] <- Inf
+      if(sum(alpha == 0 & coord_des_obj$parms - parmsPosi < 0) > 0)
+        alpha = 0
+      else
+        alpha <- min(alpha[alpha > 0], 1)
+      stepSz <- step_Armijo(parmsPosi, obj, grad, 
+                            alpha * (coord_des_obj$parms - parmsPosi), 1e-4, 
                             function(x){- likfun(x, locs[, idxPosiLocs, drop = F])$loglik + 
                                 lambda * sum(x[2 : (1 + sum(idxPosiLocs))])})
       if(stepSz < 0)
@@ -76,7 +87,8 @@ quad_cdsc_L1 <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda,
       else
       {
         parmsNew <- parms
-        parmsNew[idxPosiParm] <- parmsNew[idxPosiParm] + stepSz * (coord_des_obj$parms - parmsPosi)
+        parmsNew[idxPosiParm] <- parmsNew[idxPosiParm] + stepSz * alpha * 
+          (coord_des_obj$parms - parmsPosi)
         grad_des <- F
       }
     }
@@ -179,7 +191,9 @@ quad_cdsc_L1_brute <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda
     # coordinate descent
     b <- grad - as.vector(H %*% parmsPosi)
     coord_des_obj <- cdsc_quad_posi(H, b, parmsPosi, silent, 
-                                    convtol2, max_iter2, 1e6, lb_parms[idxPosiParm])
+                                    convtol2, max_iter2, 1e6,
+                                    c(lb_parms[1], rep(0, sum(idxPosiLocs)), 
+                                      lb_parms[(2 + ncol(locs)) : length(lb_parms)]))
     # check if the relevance parameters are all zero
     if(sum(coord_des_obj$parms[2 : (1 + sum(idxPosiLocs))]) == 0)
       coord_des_obj$code <- 2
@@ -187,7 +201,16 @@ quad_cdsc_L1_brute <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda
     # check if obj func decreases
     if(coord_des_obj$code < 2) # parms_new is valid
     {
-      stepSz <- step_Armijo(parmsPosi, obj, grad, coord_des_obj$parms - parmsPosi, 1e-4, 
+      alpha <- lb_parms[idxPosiParm] - parmsPosi
+      alpha[alpha > 0] <- 0 # machine precision error correction
+      alpha <- alpha / (coord_des_obj$parms - parmsPosi)
+      alpha[is.na(alpha)] <- Inf
+      if(sum(alpha == 0 & coord_des_obj$parms - parmsPosi < 0) > 0)
+        alpha = 0
+      else
+        alpha <- min(alpha[alpha > 0], 1)
+      stepSz <- step_Armijo(parmsPosi, obj, grad,
+                            alpha * (coord_des_obj$parms - parmsPosi), 1e-4,
                             function(x){- likfun(x, locs[, idxPosiLocs, drop = F])$loglik + 
                                 lambda * sum(x[2 : (1 + sum(idxPosiLocs))])})
       if(stepSz < 0)
@@ -195,7 +218,8 @@ quad_cdsc_L1_brute <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda
       else
       {
         parmsNew <- parms
-        parmsNew[idxPosiParm] <- parmsNew[idxPosiParm] + stepSz * (coord_des_obj$parms - parmsPosi)
+        parmsNew[idxPosiParm] <- parmsNew[idxPosiParm] + stepSz * alpha *
+          (coord_des_obj$parms - parmsPosi)
         grad_des <- F
       }
     }
@@ -256,7 +280,7 @@ quad_cdsc_L1_brute <- function(likfun, likfunGDFIM, locs, p, start_parms, lambda
 #' @param max_iter maximum number of 2nd order approximations
 #' @param max_iter2 maximum number of epochs in coordinate descent
 #' @param lb_nonrel_parms the lower bounds for non-relevance parameters
-quad_cdsc_L1_SCAD <- function(likfun, likfunGDFIM, locs, p, start_parms, 
+quad_cdsc_SCAD <- function(likfun, likfunGDFIM, locs, p, start_parms, 
                          epsl, silent = FALSE, convtol = 1e-4, 
                          convtol2 = 1e-4, max_iter = 40, max_iter2 = 40, 
                          lb_nonrel_parms = rep(0, length(start_parms) - ncol(locs)))
@@ -308,7 +332,9 @@ quad_cdsc_L1_SCAD <- function(likfun, likfunGDFIM, locs, p, start_parms,
     # coordinate descent
     b <- grad - as.vector(H %*% parmsPosi)
     coord_des_obj <- cdsc_quad_posi(H, b, parmsPosi, silent, 
-                                    convtol2, max_iter2, 1e6, lb_parms[idxPosiParm])
+                                    convtol2, max_iter2, 1e6,
+                                    c(lb_parms[1], rep(0, sum(idxPosiLocs)), 
+                                      lb_parms[(2 + ncol(locs)) : length(lb_parms)]))
     # check if the relevance parameters are all zero
     if(sum(coord_des_obj$parms[2 : (1 + sum(idxPosiLocs))]) == 0)
       coord_des_obj$code <- 2
@@ -316,7 +342,16 @@ quad_cdsc_L1_SCAD <- function(likfun, likfunGDFIM, locs, p, start_parms,
     # check if obj func decreases
     if(coord_des_obj$code < 2) # parms_new is valid
     {
-      stepSz <- step_Armijo(parmsPosi, obj, grad, coord_des_obj$parms - parmsPosi, 1e-4, 
+      alpha <- lb_parms[idxPosiParm] - parmsPosi
+      alpha[alpha > 0] <- 0 # machine precision error correction
+      alpha <- alpha / (coord_des_obj$parms - parmsPosi)
+      alpha[is.na(alpha)] <- Inf
+      if(sum(alpha == 0 & coord_des_obj$parms - parmsPosi < 0) > 0)
+        alpha = 0
+      else
+        alpha <- min(alpha[alpha > 0], 1)
+      stepSz <- step_Armijo(parmsPosi, obj, grad, 
+                            alpha * (coord_des_obj$parms - parmsPosi), 1e-4, 
                             function(x){- likfun(x, locs[, idxPosiLocs, drop = F])$loglik + 
                                 SCAD_pen(x[2 : (1 + sum(idxPosiLocs))], lambda, a)})
       if(stepSz < 0)
@@ -324,7 +359,8 @@ quad_cdsc_L1_SCAD <- function(likfun, likfunGDFIM, locs, p, start_parms,
       else
       {
         parmsNew <- parms
-        parmsNew[idxPosiParm] <- parmsNew[idxPosiParm] + stepSz * (coord_des_obj$parms - parmsPosi)
+        parmsNew[idxPosiParm] <- parmsNew[idxPosiParm] + stepSz * alpha * 
+          (coord_des_obj$parms - parmsPosi)
         grad_des <- F
       }
     }
@@ -366,7 +402,9 @@ quad_cdsc_L1_SCAD <- function(likfun, likfunGDFIM, locs, p, start_parms,
     likobj <- likobjNew
     obj <- objNew
   }
-  return(list(covparms = parms, obj = obj, betahat = likobj$betahat, neval = i + 1))
+  return(list(covparms = parms, 
+              obj = obj - SCAD_pen(parms[2 : (1 + ncol(locs))], lambda, a), 
+              betahat = likobj$betahat, neval = i + 1))
 }
 
 #' Coordinate descent for a quadratic function in the positive domain 
@@ -394,6 +432,7 @@ cdsc_quad_posi <- function(A, b, start_parms, silent, convtol, max_iter, max_par
     {
       chg <- - sum(A[j, -j] * parms_new[-j])
       parms_new[j] <- max((- b[j] + chg) / A[j, j], lb[j])
+      
       if(parms_new[j] > max_parm || is.na(parms_new[j]) || is.infinite(parms_new[j]))
         return(list(code = 2, parms = parms_new))
     }
@@ -501,4 +540,5 @@ ddSCAD_pen <- function(parms, lambda, a)
   for(i in 1 : d)
     if(parms[i] > lambda && parms[i] < tmpVal)
       ddpen[i, i] = - 1 / (a - 1)
+  return(ddpen)
 }
