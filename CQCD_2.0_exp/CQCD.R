@@ -10,7 +10,7 @@
 #' @param lb the lower bounds for all parameters
 #' @param arg_check the function for checking parms
 #' @param silent TRUE/FALSE for suppressing output
-QDSC <- function(likfun, likfun_GDFIM, parms0, 
+CQCD <- function(likfun, likfun_GDFIM, parms0, 
                  convtolOut = 1e-4, 
                  convtolIn = 1e-4, maxIterOut = 20, maxIterIn = 40, 
                  lb = rep(0, length(parms0)),
@@ -24,6 +24,9 @@ QDSC <- function(likfun, likfun_GDFIM, parms0,
 
   parms <- parms0
   likobj <- likfun_GDFIM(parms)
+  # record first loglik value
+  loglikInit <- likobj$loglik
+  
   for(i in 1 : maxIterOut)
   {
     # check for NAs and NaNs
@@ -86,8 +89,8 @@ QDSC <- function(likfun, likfun_GDFIM, parms0,
     cat(paste0("obj = ", round(obj, 6), "  \n"))
     cat("\n")
   }
-  return(list(covparms = parms, loglik = likobj$loglik, grad = likobj$grad,
-              info = likobj$info, neval = i + 1))
+  return(list(covparms = parms, loglik = likobj$loglik, loglikInit = loglikInit,
+              grad = likobj$grad, info = likobj$info, neval = i + 1))
 }
 
 #' Coordinate descent for a quadratic function in the positive domain 
