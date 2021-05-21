@@ -1,0 +1,213 @@
+---
+title: "grad_info_sqrel"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+This summary produces a plot supporting that gradients w.r.t. SRs are informative, i.e., showing which covariates are more likely to be true.
+
+## Preparation
+Need to install a modified version of the GpGp R package.
+```{r install the moderated GpGp Pkg}
+rm(list = ls())
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+library(mvtnorm)
+source("CQCD.R")
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+set.seed(123)
+```
+
+## Stopping condition
+```{r stopping condition}
+stop_cond <- function(objOld, objNew, dOld, dNew)
+{
+  BICOld <- log(n) * dOld + 2 * objOld
+  BICNew <- log(n) * dNew + 2 * objNew
+  return(BICNew > BICOld)
+} 
+```
+
+## Experiment
+```{r simulate GP}
+n <- 1e4
+d <- 20
+m <- 100
+k <- 1
+rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+locs <- lhs::randomLHS(n, d)
+locs <- locs * outer(rep(sqrt(n), n), 1 / sqrt(colSums(locs^2)))
+covM <- GpGp::matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+X <- matrix(1, n, 1)
+rm(covM, cholM)
+```
+
+```{r forward-backward selection}
+sigmasqInit <- 0.25
+tausqInit <- 0.01^2
+theta <- c(sigmasqInit, rep(1e-8, d), tausqInit)
+lb <- c(0.01^2, rep(0, d), 0.01^2) 
+arg_check <- function(x) {sum(x[-c(1, length(x))]) > 1e-10}
+idx <- c()
+rslt <- list()
+breakIter <- NA
+startTime <- Sys.time()
+for(i in 1 : 10)
+{
+  startTimeNNarrray <- Sys.time()
+  idxLocRel <- theta[2 : (d + 1)] > 0
+  locsRel <- locs[, idxLocRel, drop = F]
+  locsRelScal <- locsRel %*% diag(sqrt(theta[2 : (d + 1)][idxLocRel]), 
+                               sum(idxLocRel), sum(idxLocRel))
+  odr <- GpGp::order_maxmin(locsRelScal)
+  yOdr <- y[odr]
+  locsRelScalOdr <- locsRelScal[odr, , drop = F]
+  locsOdr <- locs[odr, , drop = F]
+  XOdr <- X[odr, , drop = F]
+  NNarray <- GpGp::find_ordered_nn(locsRelScalOdr, m = m)
+  endTimeNNarrray <- Sys.time()
+  cat("Finding NNarray used", 
+      as.numeric(difftime(endTimeNNarrray, startTimeNNarrray, units = "secs")), 
+      "seconds\n")
+  startTimeGrad <- Sys.time()
+  gradObj <- 
+    GpGp::vecchia_profbeta_loglik_grad_info(theta, 
+                                            "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdr, NNarray)
+  endTimeGrad <- Sys.time()
+  cat("Computing gradient used", 
+      as.numeric(difftime(endTimeGrad, startTimeGrad, units = "secs")), 
+      "seconds\n")
+  # select covariates
+  odrDec <- order(gradObj$grad[2 : (d + 1)], decreasing = T)
+  if(length(idx) == 0)
+    idxNew <- 1 + odrDec[1 : k]
+  else
+    idxNew <- c(idx, 1 + setdiff(odrDec, idx - 1)[1 : k])
+  rslt[[3 * (i - 1) + 1]] <- gradObj$grad[2 : (d + 1)]
+  rslt[[3 * (i - 1) + 2]] <- idx - 1
+  rslt[[3 * (i - 1) + 3]] <- setdiff(idxNew, idx) - 1
+  cat("Selected var", setdiff(idxNew, idx), "at iter", i, "\n")
+  
+  # remove irrelevant predictors
+  thetaRel <- theta[c(1, idxNew, 2 + d)] 
+  locsOdrRel <- locsOdr[, idxNew - 1, drop = F] 
+  lbRel <- lb[c(1, idxNew, 2 + d)] 
+  
+  # opt with SR parameters
+  objfun <- function(theta){
+    GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdrRel, 
+                                            NNarray)
+  }
+  objfun_gdfm <- function(theta){
+    GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdrRel, 
+                                            NNarray)
+  }
+  startTimeOpt1 <- Sys.time()
+  optObj <- CQCD(objfun, objfun_gdfm, thetaRel, maxIterOut = 3, maxIterIn = 40, 
+               lb = lbRel, arg_check = arg_check)
+  endTimeOpt1 <- Sys.time()
+  cat("Opt with SR used", 
+      as.numeric(difftime(endTimeOpt1, startTimeOpt1, units = "secs")), 
+      "seconds\n")
+  thetaRel <- optObj$covparms
+  # record the obj val using the previously optimized parms and the new order
+  obj <- - optObj$loglikInit
+  
+  # opt with relevance parameters
+  thetaRel[2 : (1 + length(idxNew))] <- sqrt(thetaRel[2 : (1 + length(idxNew))])
+  objfun <- function(theta){
+    GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_relevance",
+                                            yOdr, XOdr, locsOdrRel,
+                                            NNarray)
+  }
+  objfun_gdfm <- function(theta){
+    GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_relevance",
+                                            yOdr, XOdr, locsOdrRel,
+                                            NNarray)
+  }
+  startTimeOpt2 <- Sys.time()
+  optObj <- CQCD(objfun, objfun_gdfm, thetaRel, maxIterOut = 10, maxIterIn = 40,
+               lb = lbRel, arg_check = arg_check)
+  endTimeOpt2 <- Sys.time()
+  cat("Opt with rel used", 
+      as.numeric(difftime(endTimeOpt2, startTimeOpt2, units = "secs")), 
+      "seconds\n")
+  thetaRel <- optObj$covparms
+  thetaRel[2 : (1 + length(idxNew))] <- thetaRel[2 : (1 + length(idxNew))]^2
+  objNew <- - optObj$loglik
+  # Where would BIC stop
+  if(is.na(breakIter) && 
+     stop_cond(obj, objNew, length(idx), length(idxNew)))
+    breakIter <- i
+  # Take out zero relevance
+  idxLocZero <- which(thetaRel[2 : (1 + length(idxNew))] == 0)
+  if(length(idxLocZero) > 0)
+  {
+    cat("Predictor", idxNew[idxLocZero], "are zerod out \n")
+    idxNew <- idxNew[-idxLocZero]
+    thetaRel <- thetaRel[-(idxLocZero + 1)]
+  }
+  # Copy val for next iter
+  idx <- idxNew
+  theta <- rep(0, d + 2)
+  theta[c(1, idx, d + 2)] <- thetaRel
+}
+cat(idx, "\n")
+cat(theta[c(1, idx, d + 2)], "\n")
+endTime <- Sys.time()
+cat("Time used for estimation is", as.numeric(difftime(endTime, startTime, units = "secs")), "seconds\n")
+```
+
+## Plot the results
+
+```{r build dataframe}
+mydf <- matrix(NA, d * 10, 4)
+for(i in 1 : 10)
+{
+  mydf[((i - 1) * d + 1) : (i * d), 1] <- rslt[[3 * (i - 1) + 1]]
+  mydf[((i - 1) * d + 1) : (i * d), 2] <- i
+  mydf[((i - 1) * d + 1) : (i * d), 4] <- 1 # color
+  mydf[(i - 1) * d + which(rslt[[3 * (i - 1) + 1]] < 0), 4] <- 3 # color
+  mydf[(i - 1) * d + setdiff(rslt[[3 * (i - 1) + 2]], rslt[[3 * i]]), 1 : 2] <- 
+    NA
+  mydf[(i - 1) * d + rslt[[3 * i]], 3] <- rslt[[3 * i]]
+  mydf[(i - 1) * d + rslt[[3 * i]], 4] <- 2 # color
+}
+mydf <- as.data.frame(mydf)
+colnames(mydf) <- c("gradient", "iter", "label", "color")
+mydf <- mydf[!is.na(mydf$gradient), ]
+mydf$iter <- as.factor(mydf$iter)
+mydf$gradient <- abs(mydf$gradient)
+mydf$color[mydf$color == 2] <- "selected var"
+mydf$color[mydf$color == 1] <- "positive grads"
+mydf$color[mydf$color == 3] <- "negative grads"
+```
+
+```{r plot the result}
+
+ggplot(data = mydf, aes(x = iter, y = gradient, col = factor(color),
+                        label = label)) +
+  geom_text(nudge_x = 0.4, show.legend = FALSE) +
+  geom_point() +
+  scale_color_brewer(palette="Dark2") +
+  scale_y_continuous(trans = "log2",
+                     labels = trans_format('log2',math_format(2^.x))) +
+  xlab("iteration number") +
+  # scale_x_discrete(limits = c("1", "11")) + 
+  theme(legend.title = element_blank(), legend.position="right") +
+  expand_limits(x = c(11))
+ggsave("gradient_sr.pdf", width = 6, height = 3.375)
+```
