@@ -1,22 +1,3 @@
-This repository studies the optimization methods for the Vecchia approximation with a penalty function.
+CQCD_1.0_exp has the experiments prior to the algorithm redesign in commit 9f1dcf914c112c145682e9acbd63f9eb29a81d33. It is mainly used as reference. The new design of CQCD improved a lot, also deleted the non-intuitive contingency checks.
 
-## Optimization methods
-Four optimizations methods are discuessed:
-
-1. Fisher scoring
-2. Quadratic approximation combined with coordinate descent 
-3. L-BFGS-B method
-4. Forward selection
-
-## First experiment
-
-Simulate GP with: 
-
-* n = 10,000
-* kernel = Matern2.5
-* sigma = 1, tau2 = 0.05^2, d = 20 with r = (10, 5, 2, 1, 0.5, 0, 0, ...)
-
-For the first three optimization methods, search the penalty parameter lambda on a grid. For forward selection, need to decide the criteria for selecting the best model at each step and the criteria for variable selection to stop. The criteria can be based on:
-
-* Loglikelihood
-* Cross-validated MSE
+CQCD_2.0_exp hopefully will become the final version of the algorithms developed for this paper. Figures and relevant data will be produced in the markdown files.

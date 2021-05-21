@@ -163,7 +163,7 @@ is_Armijo <- function(parmsNew, objNew, parms, obj, grad, c)
 gd_Armijo <- function(parms, obj, grad, c, obj_func, lb, arg_check)
 {
   alpha <- 1
-  while(alpha > 1e-10)
+  while(sum(abs(grad * alpha)^2) > 2^(-20) * length(grad))
   {
     parmsNew <- parms - grad * alpha
     parmsNew[parmsNew < lb] <- lb[parmsNew < lb]
