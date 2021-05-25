@@ -129,10 +129,7 @@ dsc_lb <- function(A, b, start_parms, silent, convtol, max_iter, lb)
         parms_new[j] <- lb[j]
       }
       if(is.na(parms_new[j]) || is.infinite(parms_new[j]))
-      {
-        warning(paste("NA or Inf found in dsc_lb. Early return ...\n"))
-        return(list(code = -1, parms = parms_new))
-      }
+        stop(paste("NA or Inf found in dsc_lb. Early return ...\n"))
     }
     if(sqrt(sum((parms_new - parms_new_cp)^2)) < convtol)
       return(list(code = 0, parms = parms_new))
