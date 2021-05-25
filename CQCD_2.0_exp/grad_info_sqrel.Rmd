@@ -180,7 +180,7 @@ for(i in 1 : 10)
   mydf[((i - 1) * d + 1) : (i * d), 1] <- rslt[[3 * (i - 1) + 1]]
   mydf[((i - 1) * d + 1) : (i * d), 2] <- i
   mydf[((i - 1) * d + 1) : (i * d), 4] <- 1 # color
-  mydf[(i - 1) * d + which(rslt[[3 * (i - 1) + 1]] < 0), 4] <- 3 # color
+  # mydf[(i - 1) * d + which(rslt[[3 * (i - 1) + 1]] < 0), 4] <- 3 # color
   mydf[(i - 1) * d + setdiff(rslt[[3 * (i - 1) + 2]], rslt[[3 * i]]), 1 : 2] <- 
     NA
   mydf[(i - 1) * d + rslt[[3 * i]], 3] <- rslt[[3 * i]]
@@ -190,10 +190,10 @@ mydf <- as.data.frame(mydf)
 colnames(mydf) <- c("gradient", "iter", "label", "color")
 mydf <- mydf[!is.na(mydf$gradient), ]
 mydf$iter <- as.factor(mydf$iter)
-mydf$gradient <- abs(mydf$gradient)
+# mydf$gradient <- abs(mydf$gradient)
 mydf$color[mydf$color == 2] <- "selected var"
-mydf$color[mydf$color == 1] <- "positive grads"
-mydf$color[mydf$color == 3] <- "negative grads"
+mydf$color[mydf$color == 1] <- "gradients"
+# mydf$color[mydf$color == 3] <- "negative grads"
 ```
 
 ```{r plot the result}
@@ -206,8 +206,13 @@ ggplot(data = mydf, aes(x = iter, y = gradient, col = factor(color),
   scale_y_continuous(trans = "log2",
                      labels = trans_format('log2',math_format(2^.x))) +
   xlab("iteration number") +
-  # scale_x_discrete(limits = c("1", "11")) + 
   theme(legend.title = element_blank(), legend.position="right") +
-  expand_limits(x = c(11))
+  expand_limits(x = c(11)) +
+  geom_vline(xintercept = breakIter - 0.5, lty = "dashed", col = "red") +
+  geom_text(data = NULL, 
+            mapping = aes(x = breakIter - 0.5, y = max(mydf$gradient), 
+                          label = "BIC"), 
+            col = "red", position = position_nudge(x = 0.5), cex = 5,
+            show.legend = FALSE)
 ggsave("gradient_sr.pdf", width = 6, height = 3.375)
 ```
