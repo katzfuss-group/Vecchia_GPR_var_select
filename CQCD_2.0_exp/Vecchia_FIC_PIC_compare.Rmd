@@ -1,0 +1,207 @@
+---
+title: "Vecchia_FIC_PIC_compare"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r preparation}
+rm(list = ls())
+set.seed(123)
+library(GpGp)
+library(mvtnorm)
+library(dplyr)
+library(ggplot2)
+
+n <- 5000
+d <- 10
+mVec <- seq(from = 4, to = 52, by = 4)
+nrep <- 10
+rTrue <- 20
+rFalse <- 0.2
+r <- c(rep(rTrue, 2), rep(rFalse, d - 2))
+sigmaSq <- 1
+tauSq <- 0
+kernel_func <- matern25_scaledim_relevance
+kernelName <- "matern25_scaledim_relevance"
+```
+
+## Function for simulating replicates
+Function for simulating predictors and GP. Return a list consisting of locations `locs` and observations `y`.
+```{r func for simulating predictors and GP}
+simulate_func <- function(nExtra)
+{
+  nTtl <- n + nExtra
+  locs <- lhs::randomLHS(nTtl, d)
+  # locs <- locs * outer(rep(sqrt(nTtl), nTtl), 1 / sqrt(colSums(locs^2)))
+  covM <- kernel_func(c(sigmaSq, r, tauSq), locs)
+  cholM <- t(chol(covM))
+  y <- as.vector(cholM %*% rnorm(nTtl))
+  list(locs = locs, y = y)
+}
+```
+
+## FIC and PIC
+Function for selecting the inducing points (pseudo-inputs). Return the indices of inducing points.
+```{r func for selecting inducing pts}
+select_induce <- function(locs, m)
+{
+  order_maxmin(locs)[1 : m]
+}
+```
+Function for partitioning the observations based on the `kmeans` function.
+```{r func for partitioning}
+partition_func <- function(locs, k)
+{
+  clusterID <- kmeans(locs, centers = k)$cluster
+  partition <- list()
+  for(i in 1 : k)
+    partition[[i]] <- which(clusterID == i)
+  partition
+}
+```
+Function for computing the low-rank covariance matrices, returning the sum of the low-rank covariance matrix `Q` and the diagonal nugget.
+```{r func for lr covM}
+lr_covM <- function(locs, centers)
+{
+  covMTTl <- kernel_func(c(sigmaSq, r, tauSq), rbind(locs, centers))
+  m1 <- nrow(locs)
+  m2 <- nrow(centers)
+  M <- covMTTl[(m1 + 1) : (m1 + m2), (m1 + 1) : (m1 + m2)]
+  KXM <- covMTTl[1 : m1, (m1 + 1) : (m1 + m2)]
+  Q <- KXM %*% solve(M) %*% t(KXM)
+  diag(Q) <- diag(covMTTl)[1 : m1]
+  Q
+}
+```
+Function for the FIC log-likelihood. `locs` and `centers` should not overlap.
+```{r func FIC log-likelihood}
+loglk_FIC <- function(y, locs, centers)
+{
+  Q <- lr_covM(locs, centers)
+  dmvnorm(y, sigma = Q, log = T)
+}
+```
+Function for the PIC log-likelihood. `locs` and `centers` should not overlap.
+```{r func PIC log-likelihood}
+loglk_PIC <- function(y, locs, centers)
+{
+  partition <- partition_func(locs,
+                              round(nrow(locs) / nrow(centers)))
+  Q <- lr_covM(locs, centers)
+  for(i in 1 : length(partition))
+  {
+    setI <- partition[[i]]
+    if(length(setI) > 0)
+    {
+      Q[setI, setI] <- kernel_func(c(sigmaSq, r, tauSq), 
+                                   locs[setI, , drop = F])
+    }
+  }
+  dmvnorm(y, sigma = Q, log = T)
+}
+```
+
+## Vecchia and Scaled Vecchia
+Function for the Vecchia log-likelihood.
+```{r func Vecchia log-likelihood}
+loglk_Vecchia <- function(y, locs, m)
+{
+  odr <- order_maxmin(locs)
+  locsOdr <- locs[odr, ]
+  NNarray <- find_ordered_nn(locsOdr, m)
+  yOdr <- y[odr]
+  vecchia_meanzero_loglik(c(sigmaSq, r, tauSq), kernelName,
+                          yOdr, locsOdr, NNarray)[[1]]
+}
+```
+Function for the scaled Vecchia log-likelihood
+```{r func scaled Vecchia log-likelihood}
+loglk_SVecchia <- function(y, locs, m)
+{
+  odr <- order_maxmin(t(t(locs) * r))
+  locsOdr <- locs[odr, ]
+  NNarray <- find_ordered_nn(t(t(locsOdr) * r), m)
+  yOdr <- y[odr]
+  vecchia_meanzero_loglik(c(sigmaSq, r, tauSq), kernelName, 
+                          yOdr, locsOdr, NNarray)[[1]]
+}
+```
+
+## Simulation
+```{r simulation}
+rslt <- matrix(NA, 4 * length(mVec) * nrep, 4)
+colnames(rslt) <- c("iter", "m", "method", "llk")
+rslt[, 3] <- c(1, 2, 3, 4) # method ID
+rslt[, 2] <- kronecker(mVec, rep(1, 4)) # m
+rslt[, 1] <- kronecker(c(1 : nrep), rep(1, 4 * length(mVec))) # iter ID
+offset <- 0
+for(i in 1 : nrep)
+{
+  mMax <- max(mVec)
+  simObj <- simulate_func(mMax)
+  idxInduce <- select_induce(simObj$locs, mMax)
+  locs <- simObj$locs[- idxInduce, ]
+  # true density
+  trueDen <- dmvnorm(rep(0, n),
+                     sigma = kernel_func(c(sigmaSq, r, tauSq), locs),
+                     log = T)
+  for(m in mVec)
+  {
+    locsInduceFIC <- simObj$locs[idxInduce[1 : m], ]
+    locsInducePIC <- simObj$locs[idxInduce[1 : (m / 2)], ]
+    
+    rslt[offset + 1, 4] <- trueDen - loglk_FIC(rep(0, n), locs, locsInduceFIC)
+    rslt[offset + 2, 4] <- trueDen - loglk_PIC(rep(0, n), locs, locsInducePIC)
+    rslt[offset + 3, 4] <- trueDen - loglk_Vecchia(rep(0, n), locs, m)
+    rslt[offset + 4, 4] <- trueDen - loglk_SVecchia(rep(0, n), locs, m)
+    
+    offset <- offset + 4
+  }
+}
+save(rslt, file = "Vecchia_FIC_PIC_compare.RData")
+```
+
+## Plot
+```{r plot llk est by true parms}
+rslt <- as.data.frame(rslt)
+rslt$method[rslt$method == 1] <- "FIC"
+rslt$method[rslt$method == 2] <- "PIC"
+rslt$method[rslt$method == 3] <- "Vecchia"
+rslt$method[rslt$method == 4] <- "SVecchia"
+rslt$method = factor(rslt$method, 
+                     levels = c("FIC", "PIC", "Vecchia", "SVecchia"))
+mydf <- rslt %>% group_by(m, method) %>% 
+  summarise(llk = mean(llk))
+
+ggplot(data = mydf, aes(x = m, y = llk, group = method, col = method, 
+                        label = method)) +
+  geom_line() +
+  xlab("m") +
+  ylab("Avg. KL Divergence") +
+  scale_color_brewer(palette = "Dark2") +
+  # scale_y_continuous(trans = pseudo_log_trans(sigma = 1e-1),
+  #                    breaks = unique(c(r, relInit))) +
+  theme(legend.title = element_blank(), legend.position="right")
+ggsave("Vecchia_FIC_PIC_compare.pdf", width = 6, height = 3.375)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
