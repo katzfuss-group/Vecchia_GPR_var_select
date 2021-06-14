@@ -1,5 +1,5 @@
 ---
-title: "grad_info_sqrel_pen"
+title: "stepk_indep"
 output: html_document
 ---
 
@@ -8,7 +8,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Overview
-This summary is based on `grad_info_sqrel` to show that using the BIC penalty outlined in `BIC penalty explain` can effectively deselect predictors.
+This summary uses BIC and BIC penalized objective function. The step size can be defined in `k`. Hopefully, this markdown will show the point of deselecting with `CQCD`.
 ```{r clean environment}
 rm(list = ls())
 ```
@@ -42,7 +42,7 @@ stop_cond <- function(objOld, objNew, dOld, dNew)
 n <- 1e4
 d <- 100
 m <- 100
-k <- 1
+k <- 5
 rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
 sigmasq <- 1.0 # variance
 tausq <- 0.05^2 # nugget
@@ -97,9 +97,9 @@ for(i in 1 : 10)
     idxNew <- 1 + odrDec[1 : k]
   else
     idxNew <- c(idx, 1 + setdiff(odrDec, idx - 1)[1 : k])
-  rslt[[4 * (i - 1) + 1]] <- gradObj$grad[2 : (d + 1)]
-  rslt[[4 * (i - 1) + 2]] <- idx - 1
-  rslt[[4 * (i - 1) + 3]] <- setdiff(idxNew, idx) - 1
+  rslt[[5 * (i - 1) + 1]] <- gradObj$grad[2 : (d + 1)]
+  rslt[[5 * (i - 1) + 2]] <- idx - 1
+  rslt[[5 * (i - 1) + 3]] <- setdiff(idxNew, idx) - 1
   cat("Selected var", setdiff(idxNew, idx), "at iter", i, "\n")
   
   # remove irrelevant predictors
@@ -132,14 +132,17 @@ for(i in 1 : 10)
   # opt with relevance parameters, here BIC penalty is applied
   dRel <- length(idxNew)
   thetaRel[2 : (1 + dRel)] <- sqrt(thetaRel[2 : (1 + dRel)])
+  rslt[[5 * (i - 1) + 5]] <- thetaRel[2 : (1 + dRel)]
   BIC_pen <- function(theta){
-    log(n) / 2 * sum(pmin(theta[2 : (1 + dRel)] / 
-                          (2 * thetaRel[2 : (1 + dRel)]), 1))
+    idx <- which(thetaRel[2 : (1 + dRel)] > 0) + 1
+    log(n) / 2 * sum(pmin(theta[idx] / 
+                          (2 * thetaRel[idx]), 1))
   }
   BIC_dpen <- function(theta){
+    idx <- which(thetaRel[2 : (1 + dRel)] > 0) + 1
     dpen <- c(0, log(n) / 2 * 
-                (theta[2 : (1 + dRel)] < 2 * thetaRel[2 : (1 + dRel)]) / 
-                (2 * thetaRel[2 : (1 + dRel)]), 0)
+                (theta[idx] < 2 * thetaRel[idx]) / 
+                (2 * thetaRel[idx]), 0)
     dpen[is.infinite(dpen)] <- 0
     dpen
   }
@@ -151,29 +154,30 @@ for(i in 1 : 10)
     likObj
   }
   objfun_gdfm <- function(theta){
-    likObj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, "matern25_scaledim_relevance",
-                                            yOdr, XOdr, locsOdrRel,
-                                            NNarray)
+    likObj <- 
+      GpGp::vecchia_profbeta_loglik_grad_info(theta,
+                                              "matern25_scaledim_relevance",
+                                              yOdr, XOdr, locsOdrRel, NNarray)
     likObj$loglik <- likObj$loglik - BIC_pen(theta)
     likObj$grad <- likObj$grad - BIC_dpen(theta)
     likObj
   }
   startTimeOpt2 <- Sys.time()
-  optObj <- CQCD(objfun, objfun_gdfm, thetaRel, maxIterOut = 3, maxIterIn = 40,
+  optObj <- CQCD(objfun, objfun_gdfm, thetaRel, maxIterOut = 5, maxIterIn = 40,
                lb = lbRel, arg_check = arg_check)
   endTimeOpt2 <- Sys.time()
   cat("Opt with rel used", 
       as.numeric(difftime(endTimeOpt2, startTimeOpt2, units = "secs")), 
       "seconds\n")
+  objNew <- - optObj$loglik - BIC_pen(optObj$covparms)
   thetaRel <- optObj$covparms
-  objNew <- - optObj$loglik - BIC_pen(thetaRel)
   thetaRel[2 : (1 + length(idxNew))] <- thetaRel[2 : (1 + length(idxNew))]^2
   
   # Where would BIC stop
   if(is.na(breakIter) && 
-     stop_cond(obj, objNew, length(idx), length(idxNew)))
-     # stop_cond(obj, objNew, length(idx), length(idxNew) - 
-     #           sum(thetaRel[2 : (1 + length(idxNew))] == 0)))
+     # stop_cond(obj, objNew, length(idx), length(idxNew)))
+     stop_cond(obj, objNew, length(idx), length(idxNew) -
+               sum(thetaRel[2 : (1 + length(idxNew))] == 0)))
     breakIter <- i
   # Take out zero relevance
   idxLocZero <- which(thetaRel[2 : (1 + length(idxNew))] == 0)
@@ -188,9 +192,9 @@ for(i in 1 : 10)
   theta <- rep(0, d + 2)
   theta[c(1, idx, d + 2)] <- thetaRel
   
-  rslt[[4 * (i - 1) + 4]] <- theta
-  rslt[[4 * (i - 1) + 4]][2 : (d + 1)] <- 
-    sqrt(rslt[[4 * (i - 1) + 4]][2 : (d + 1)])
+  rslt[[5 * (i - 1) + 4]] <- theta
+  rslt[[5 * (i - 1) + 4]][2 : (d + 1)] <- 
+    sqrt(rslt[[5 * (i - 1) + 4]][2 : (d + 1)])
 }
 cat(idx, "\n")
 cat(theta[c(1, idx, d + 2)], "\n")
@@ -199,7 +203,7 @@ cat("Time used for estimation is", as.numeric(difftime(endTime, startTime, units
 ```
 
 ```{r save the result}
-save.image(file = "grad_info_sqrel_pen.RData")
+save.image(file = paste0("step", k, "_indep.RData"))
 ```
 
 ## Plot the selected var at each iter
@@ -208,29 +212,31 @@ save.image(file = "grad_info_sqrel_pen.RData")
 mydf <- matrix(NA, d * 10, 4)
 for(i in 1 : 10)
 {
-  mydf[((i - 1) * d + 1) : (i * d), 1] <- rslt[[4 * (i - 1) + 1]]
+  mydf[((i - 1) * d + 1) : (i * d), 1] <- rslt[[5 * (i - 1) + 1]]
   mydf[((i - 1) * d + 1) : (i * d), 2] <- i
   mydf[((i - 1) * d + 1) : (i * d), 4] <- 0 # color
-  mydf[(i - 1) * d + setdiff(rslt[[4 * (i - 1) + 2]], rslt[[4 * (i - 1) + 3]]), 
+  mydf[(i - 1) * d + setdiff(rslt[[5 * (i - 1) + 2]], rslt[[5 * (i - 1) + 3]]), 
        1 : 2] <- NA
-  mydf[(i - 1) * d + rslt[[4 * (i - 1) + 3]], 3] <- rslt[[4 * (i - 1) + 3]]
-  mydf[(i - 1) * d + which(rSq > 0), 4] <- which(rSq > 0) # color
+  mydf[(i - 1) * d + rslt[[5 * (i - 1) + 3]], 3] <- rslt[[5 * (i - 1) + 3]]
+  mydf[(i - 1) * d + which(rSq > 0), 4] <- sqrt(rSq[which(rSq > 0)]) # color
 }
 mydf <- as.data.frame(mydf)
 colnames(mydf) <- c("gradient", "iter", "label", "color")
 mydf <- mydf[!is.na(mydf$gradient), ]
 mydf$iter <- as.factor(mydf$iter)
-mydf$color[mydf$color > 0] <- paste0("var ", mydf$color[mydf$color > 0])
-mydf$color[mydf$color == 0] <- "irrelevant var"
+mydf$color[mydf$color > 0] <- paste0("rel = ", mydf$color[mydf$color > 0])
+mydf$color[mydf$color == 0] <- "rel = 0"
 mydf$color <- factor(mydf$color, levels = unique(mydf$color))
 ```
 
 ```{r plot the var selected at each iter}
 ggplot(data = mydf, aes(x = iter, y = gradient, col = factor(color),
                         label = label)) +
-  geom_text(nudge_x = 0.4, show.legend = FALSE) +
+  # geom_text(nudge_x = 0.4, show.legend = FALSE) +
   geom_point() +
-  scale_color_brewer(palette="Dark2") +
+  scale_color_manual(breaks = paste0("rel = ", sqrt(unique(rSq))),
+                     values = c(rainbow(length(unique(rSq)) - 1),
+                                "grey")) +
   scale_y_continuous(trans = pseudo_log_trans(sigma = 4e-1),
                      breaks = c(0, 
                                 signif(min(mydf$gradient) / 2, digits = 1),
@@ -247,34 +253,42 @@ ggplot(data = mydf, aes(x = iter, y = gradient, col = factor(color),
                           label = "BIC"), 
             col = "red", position = position_nudge(x = 0.5), cex = 5,
             show.legend = FALSE, fontface = "plain", family = "mono")
-ggsave("gradient_sr_pen.pdf", width = 6, height = 3.375)
+ggsave(paste0("gradient_indep_", k, ".pdf"), width = 6, height = 3.375)
 ```
 
 ## Plot the convergence of the non-zero rel
 
 ```{r build dataframe for convergence of non-zero rel}
 nRow <- sum(sapply(c(1 : 10), 
-                      function(i){length(rslt[[4 * (i - 1) + 2]])}))
-mydf <- matrix(NA, nRow + 10 * 2, 6)
+                      function(i){length(rslt[[5 * (i - 1) + 2]]) * 2 + 
+                          k * 3}))
+mydf <- matrix(NA, nRow + 5, 6)
 rowIdx <- 1
 for(i in 1 : 10)
 {
-  mydf[rowIdx, 1] <- 0 # init var val
-  mydf[rowIdx, 2] <- i - 1 # iter
-  mydf[rowIdx, 3] <- rslt[[4 * (i - 1) + 3]] # var ID
-  idxVar <- c(rslt[[4 * (i - 1) + 2]], rslt[[4 * (i - 1) + 3]])
-  mydf[(rowIdx + 1 ): (rowIdx + length(idxVar)), 1] <- 
-    rslt[[4 * (i - 1) + 4]][idxVar + 1]
-  mydf[(rowIdx + 1 ): (rowIdx + length(idxVar)), 2] <- i # iter
-  mydf[(rowIdx + 1 ): (rowIdx + length(idxVar)), 3] <- idxVar # var ID
-  if(i < 6)
-  {
-    mydf[rowIdx + length(idxVar), 5] <- rslt[[4 * (i - 1) + 3]] # var ID label
-    mydf[rowIdx + length(idxVar), 6] <- sqrt(rSq[i]) # true r for y intercept
-  }
-    
-  rowIdx <- rowIdx + length(idxVar) + 1
+  mydf[rowIdx : (rowIdx + k - 1), 1] <- 0 # init var val
+  mydf[rowIdx : (rowIdx + k - 1), 2] <- i - 1 # iter
+  mydf[rowIdx : (rowIdx + k - 1), 3] <- rslt[[5 * (i - 1) + 3]] # var ID
+  idxVar <- c(rslt[[5 * (i - 1) + 2]], rslt[[5 * (i - 1) + 3]])
+  mydf[(rowIdx + k) : (rowIdx + k + length(idxVar) - 1), 1] <- 
+    rslt[[5 * (i - 1) + 5]]
+  mydf[(rowIdx + k + length(idxVar)) : 
+         (rowIdx + k + 2 * length(idxVar) - 1), 1] <- 
+    rslt[[5 * (i - 1) + 4]][idxVar + 1]
+  mydf[(rowIdx + k) : (rowIdx + k + length(idxVar) - 1), 2] <- i - 0.5 # iter
+  mydf[(rowIdx + k + length(idxVar)) : 
+         (rowIdx + k + 2 * length(idxVar) - 1), 2] <- i # iter
+  mydf[(rowIdx + k) : (rowIdx + k + 2 * length(idxVar) - 1), 3] <- idxVar # var ID
+  
+  rowIdx <- rowIdx + length(idxVar) * 2 + k
 }
+for(i in 1 : 5)
+{
+  mydf[rowIdx + i - 1, 3] <- i
+  mydf[rowIdx + i - 1, 5] <- i
+  mydf[rowIdx + i - 1, 6] <- sqrt(rSq[i])
+}
+rowIdx <- rowIdx + 5
 mydf <- as.data.frame(mydf)
 colnames(mydf) <- c("val", "iter", "varid", "label", "varidLabel",
                     "y_intercept")
@@ -294,15 +308,17 @@ ggplot(data = mydf, aes(x = iter, y = val, group = varid, col = label,
              show.legend = F) +
   xlab("iteration number") +
   ylab("relevance parameters") +
-  # scale_color_manual(values=c("red", "black", "green")) +
-  scale_color_brewer(palette = "Dark2") +
+  scale_color_manual(breaks = paste0("rel = ", sqrt(unique(rSq))),
+                     values = c(rainbow(length(unique(rSq)) - 1),
+                                "grey")) +
+  # scale_color_brewer(palette = "Dark2") +
   scale_x_continuous(breaks = c(0 : 10)) +
   scale_y_continuous(trans = pseudo_log_trans(sigma = 1e-2),
                      breaks = unique(c(sqrt(rSq), 0))) +
   geom_hline(mapping = aes(col = label, yintercept = y_intercept), 
              size = 0.5, lty = "dashed") + 
   theme(legend.title = element_blank(), legend.position="right")
-ggsave("fwdbwd_conv_pen.pdf", width = 6, height = 3.375)
+ggsave(paste0("fwdbwd_indep_", k, ".pdf"), width = 6, height = 3.375)
 ```
 
 

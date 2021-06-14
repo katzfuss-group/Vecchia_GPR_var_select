@@ -134,11 +134,12 @@ mydf$err[!is.na(mydf$err)] <- paste0("err = ", mydf$err[!is.na(mydf$err)])
 ggplot(data = mydf, aes(x = iter, y = val, group = varid, col = true_val, 
                         label = err)) +
   geom_line() +
-  geom_label(nudge_y = 0.3, show.legend = F) +
+  # geom_label(nudge_y = 0.3, show.legend = F) +
   xlab("iteration number") +
   ylab("relevance parameters") +
-  # scale_color_manual(values=c("red", "black", "green"))
-  scale_color_brewer(palette = "Dark2") +
+  scale_color_manual(breaks = paste0("rel = ", unique(r)),
+                     values = c(rainbow(length(unique(r)) - 1),
+                                "grey")) +
   scale_y_continuous(trans = pseudo_log_trans(sigma = 1e-1),
                      breaks = unique(c(r, relInit))) +
   geom_hline(mapping = aes(col = true_val, yintercept = y_intercept), 
