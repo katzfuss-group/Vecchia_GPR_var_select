@@ -1,0 +1,267 @@
+---
+title: "stepk_indep_pen"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+This summary uses the inverse penalty with `lambda` in `lambdaVec`. The step size can be defined in `k`. Hopefully, this is less arbitrary than simply using the BIC criterion. Now the model choosing criterion is the out-of-sample log-score.
+```{r clean environment}
+rm(list = ls())
+```
+
+
+## Preparation
+Need to install a modified version of the GpGp R package.
+```{r install the moderated GpGp Pkg}
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+library(mvtnorm)
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+source("CQCD.R")
+set.seed(123)
+```
+
+## Experiment
+Simulate GP.
+```{r simulate GP}
+n <- 1e4
+nOOS <- 1e3 # Out-of-sample
+d <- 100
+m <- 100
+k <- 3
+rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+locs <- lhs::randomLHS((n + nOOS), d)
+locs <- locs * outer(rep(sqrt((n + nOOS)), (n + nOOS)), 
+                     1 / sqrt(colSums(locs^2)))
+covM <- GpGp::matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm((n + nOOS)))
+X <- matrix(1, (n + nOOS), 1)
+rm(covM, cholM)
+```
+Divide into in-sample and out-sample
+```{r in and out sample}
+locsOOS <- locs[(n + 1) : (n + nOOS), , drop = F]
+XOOS <- X[(n + 1) : (n + nOOS), , drop = F]
+yOOS <- y[(n + 1) : (n + nOOS)]
+locs <- locs[1 : n, ,drop = F]
+X <- X[1 : n, , drop = F]
+y <- y[1 : n]
+```
+Function for computing the approximate LOO-CV score, assuming the squared relevance parameterized Matern25 kernel.
+```{r LOO-CV score}
+CV_score <- function(y, beta, NNarray, parms, locs, yTrain)
+{
+  condVar <- apply(NNarray, 1, function(x){
+    covM <- matern25_scaledim_sqrelevance(parms, locs[x, , drop = F])
+    parms[1] - as.numeric(covM[m + 1, 1 : m, drop = F] %*% 
+                           solve(covM[1 : m, 1 : m])  %*% 
+                            t(covM[m + 1, 1 : m, drop = F]))
+  }, simplify = T)
+  condMean <- apply(NNarray, 1, function(x){
+    covM <- matern25_scaledim_sqrelevance(parms, locs[x, , drop = F])
+    beta + as.numeric(covM[m + 1, 1 : m, drop = F] %*% 
+                        solve(covM[1 : m, 1 : m])  %*% 
+                        matrix(yTrain[x[-1]] - beta, m, 1))
+  }, simplify = T)
+  - sum(dnorm(x = y, mean = condMean, sd = sqrt(condVar), log = T))
+}
+```
+Grid for the penalty `lambda`.
+```{r lambda grid}
+lambdaVec <- seq(from = log(n) * 10, to = 0, length.out = 10)
+```
+Fit model for each `lambda`.
+```{r forward-backward selection}
+sigmasqInit <- 0.25
+tausqInit <- 0.01^2
+theta <- c(sigmasqInit, rep(1e-8, d), tausqInit)
+lb <- c(0.01^2, rep(0, d), 0.01^2) 
+arg_check_SR <- function(x) {sum(sqrt(x[-c(1, length(x))])) > 1e-4}
+arg_check_R <- function(x) {sum(x[-c(1, length(x))]) > 1e-4}
+idx <- c()
+score <- Inf
+loglkPen <- - Inf 
+odrFlag <- T
+startTime <- Sys.time()
+for(lambda in lambdaVec)
+{
+  if(exists("lambdaPrev"))
+    loglkPen <- loglkPen - (lambda - lambdaPrev) * sum(theta[2 : (d + 1)] > 0)
+  while(TRUE)
+  {
+    if(odrFlag)
+    {
+      idxLocRel <- theta[2 : (d + 1)] > 0
+      locsRel <- locs[, idxLocRel, drop = F]
+      locsRelScal <- locsRel %*% diag(sqrt(theta[2 : (d + 1)][idxLocRel]), 
+                                   sum(idxLocRel), sum(idxLocRel))
+      odr <- order_maxmin(locsRelScal)
+      yOdr <- y[odr]
+      locsRelScalOdr <- locsRelScal[odr, , drop = F]
+      XOdr <- X[odr, , drop = F]
+      locsOdr <- locs[odr, , drop = F]
+      NNarray <- find_ordered_nn(locsRelScalOdr, m = m)
+    
+      # compute grad for all predictors
+      startTimeGrad <- Sys.time()
+      gradObj <- 
+        vecchia_profbeta_loglik_grad_info(theta, 
+                                          "matern25_scaledim_sqrelevance",
+                                          yOdr, XOdr, locsOdr, NNarray)
+      endTimeGrad <- Sys.time()
+      cat("Computing gradient used", 
+          as.numeric(difftime(endTimeGrad, startTimeGrad, units = "secs")), 
+          "seconds\n")
+      # select covariates
+      odrDec <- order(gradObj$grad[2 : (d + 1)], decreasing = T)
+      if(length(idx) == 0)
+        idxNew <- 1 + odrDec[1 : k]
+      else
+        idxNew <- c(idx, 1 + setdiff(odrDec, idx - 1)[1 : k])
+      cat("lambda = ", lambda, ": selected var", setdiff(idxNew, idx), "\n")
+      # remove irrelevant predictors
+      thetaRel <- theta[c(1, idxNew, 2 + d)] 
+      locsOdrRel <- locsOdr[, idxNew - 1, drop = F] 
+      lbRel <- lb[c(1, idxNew, 2 + d)] 
+      # opt with SR parameters
+      objfun <- function(theta){
+        GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_sqrelevance",
+                                                yOdr, XOdr, locsOdrRel, 
+                                                NNarray)
+      }
+      objfun_gdfm <- function(theta){
+        GpGp::vecchia_profbeta_loglik_grad_info(theta, 
+                                                "matern25_scaledim_sqrelevance",
+                                                yOdr, XOdr, locsOdrRel, 
+                                                NNarray)
+      }
+      startTimeOpt1 <- Sys.time()
+      optObj <- CQCD(objfun, objfun_gdfm, thetaRel, maxIterOut = 3, 
+                     maxIterIn = 40, lb = lbRel, arg_check = arg_check_SR)
+      endTimeOpt1 <- Sys.time()
+      cat("Opt with SR used", 
+          as.numeric(difftime(endTimeOpt1, startTimeOpt1, units = "secs")), 
+          "seconds\n")
+      thetaRel <- optObj$covparms
+      thetaRelTmp <- thetaRel
+    }else
+    {
+      cat("lambda = ", lambda, ": selected var", setdiff(idxNew, idx), "\n")
+      thetaRel <- thetaRelTmp
+      odrFlag <- T
+    }
+    # opt with relevance parameters, here BIC penalty is applied
+    dRel <- length(idxNew)
+    thetaRel[2 : (1 + dRel)] <- sqrt(thetaRel[2 : (1 + dRel)])
+    BIC_pen <- function(theta){
+      idx <- which(thetaRel[2 : (1 + dRel)] > 0) + 1
+      log(n) / 2 * sum(pmin(theta[idx] / 
+                            (thetaRel[idx]), 1)) * lambda
+    }
+    BIC_dpen <- function(theta){
+      idx <- which(thetaRel[2 : (1 + dRel)] > 0) + 1
+      dpen <- rep(0, length(theta))
+      dpen[idx] <- log(n) / 2 * (theta[idx] <= thetaRel[idx]) / 
+        (thetaRel[idx]) * lambda
+      dpen
+    }
+    objfun <- function(theta){
+      likObj <- GpGp::vecchia_profbeta_loglik(theta, 
+                                              "matern25_scaledim_relevance",
+                                              yOdr, XOdr, locsOdrRel,
+                                              NNarray)
+      likObj$loglik <- likObj$loglik - BIC_pen(theta)
+      likObj
+    }
+    objfun_gdfm <- function(theta){
+      likObj <- 
+        GpGp::vecchia_profbeta_loglik_grad_info(theta,
+                                                "matern25_scaledim_relevance",
+                                                yOdr, XOdr, locsOdrRel, NNarray)
+      likObj$loglik <- likObj$loglik - BIC_pen(theta)
+      likObj$grad <- likObj$grad - BIC_dpen(theta)
+      likObj
+    }
+    startTimeOpt2 <- Sys.time()
+    optObj <- CQCD(objfun, objfun_gdfm, thetaRel, maxIterOut = 20, 
+                   maxIterIn = 40,
+                   lb = lbRel, arg_check = arg_check_R, convtolOut = 1e-2)
+    endTimeOpt2 <- Sys.time()
+    cat("Opt with rel used", 
+        as.numeric(difftime(endTimeOpt2, startTimeOpt2, units = "secs")), 
+        "seconds\n")
+    thetaRel <- optObj$covparms
+    thetaRel[2 : (1 + length(idxNew))] <- thetaRel[2 : (1 + length(idxNew))]^2
+    loglkPenNew <- optObj$loglik
+    if(!is.infinite(loglkPen) &&
+       (loglkPenNew - loglkPen) / abs(loglkPen) < 1e-4) # penalized log-lk not
+                                                        # improving much
+    {
+      cat("\nlambda = ", lambda, ": stopped with:\nidx = ", idx, "\n",
+          "theta = ", theta[c(1, idx, d + 2)], "\n\n")
+      break
+    }
+    # Take out zero relevance
+    idxLocZero <- which(thetaRel[2 : (1 + length(idxNew))] == 0)
+    if(length(idxLocZero) > 0)
+    {
+      cat("Predictor", idxNew[idxLocZero], "are zerod out \n")
+      idxNew <- idxNew[-idxLocZero]
+      thetaRel <- thetaRel[-(idxLocZero + 1)]
+    }
+    # Copy val for next iter
+    idx <- idxNew
+    theta <- rep(0, d + 2)
+    theta[c(1, idx, d + 2)] <- thetaRel
+    betahat <- optObj$betahat
+    loglkPen <- loglkPenNew
+  }
+  # NN set of OOS
+  locsRelOOS <- locsOOS[, idx - 1, drop = F]
+  locsRelScaleOOS <- locsRelOOS %*% diag(sqrt(theta[2 : (d + 1)][idxLocRel]), 
+                                         sum(idxLocRel), sum(idxLocRel))
+  locsRelAll <- rbind(locsRelScal, locsRelScaleOOS)
+  NNarrayAll <- find_ordered_nn(locsRelAll, m = m)
+  # Sub OOS indices in NNarrayAll[(n + 1) : (n + nOOS), ] randomly 
+  NNarrayOOS <- NNarrayAll[(n + 1) : (n + nOOS), , drop = F]
+  for(i in 1 : nOOS)
+  {
+    NNarrayOOSRow <- NNarrayOOS[i, -1]
+    NNarrayOOSRow[NNarrayOOSRow > n] <- sample(setdiff(1 : n, NNarrayOOSRow), 
+                                               sum(NNarrayOOSRow > n), 
+                                               replace = F)
+    NNarrayOOS[i, -1] <- NNarrayOOSRow
+  }
+  # compute LOO-CV score, smaller is better
+  scoreNew <- CV_score(yOOS, betahat, 
+                       NNarrayOOS,
+                       theta[c(1, idx, d + 2)], rbind(locsRel, locsRelOOS), y)
+  if(scoreNew >= score + abs(score) * 1e-3)
+  {
+    cat("\n")
+    cat("Best lambda: ", lambdaPrev, "\n")
+    cat("idx: ", idxPrev, "\n")
+    cat("theta: ", thetaPrev, "\n")
+    break # idxPrev, thetaPrev, betahatPrev are better
+  }
+  score <- scoreNew
+  lambdaPrev <- lambda
+  idxPrev <- idx
+  thetaPrev <- theta
+  betahatPrev <- betahat
+  odrFlag <- F
+}
+```
+
+```{r save the result}
+save.image(file = paste0("step", k, "_indep_pen_inv.RData"))
+```
