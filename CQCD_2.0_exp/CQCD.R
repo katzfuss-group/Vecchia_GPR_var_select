@@ -90,7 +90,8 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
     cat("\n")
   }
   return(list(covparms = parms, loglik = likobj$loglik, loglikInit = loglikInit,
-              grad = likobj$grad, info = likobj$info, neval = i + 1))
+              grad = likobj$grad, info = likobj$info, neval = i + 1,
+              betahat = likobj$betahat))
 }
 
 #' Coordinate descent for a quadratic function in the positive domain 
@@ -162,8 +163,9 @@ is_Armijo <- function(parmsNew, objNew, parms, obj, grad, c)
 #' @param arg_check a function for checking the validity of the input to obj_func
 gd_Armijo <- function(parms, obj, grad, c, obj_func, lb, arg_check)
 {
-  alpha <- 1
-  while(sum(abs(grad * alpha)^2) > 2^(-20) * length(grad))
+  idxRel <- 2 : (length(grad) - 1)
+  alpha <- 1 / max(abs(grad[idxRel]), 1e-10)
+  while(sum(abs(grad[idxRel] * alpha)) > 1e-6 * length(grad[idxRel]))
   {
     parmsNew <- parms - grad * alpha
     parmsNew[parmsNew < lb] <- lb[parmsNew < lb]

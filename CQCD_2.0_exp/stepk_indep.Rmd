@@ -140,9 +140,9 @@ for(i in 1 : 10)
   }
   BIC_dpen <- function(theta){
     idx <- which(thetaRel[2 : (1 + dRel)] > 0) + 1
-    dpen <- c(0, log(n) / 2 * 
-                (theta[idx] < 2 * thetaRel[idx]) / 
-                (2 * thetaRel[idx]), 0)
+    dpen <- rep(0, length(theta))
+    dpen[idx] <- log(n) / 2 * (theta[idx] < 2 * thetaRel[idx]) / 
+      (2 * thetaRel[idx])
     dpen[is.infinite(dpen)] <- 0
     dpen
   }
