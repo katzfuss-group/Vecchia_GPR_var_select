@@ -111,9 +111,11 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
 dsc_lb <- function(A, b, start_parms, silent, convtol, max_iter, lb)
 {
   if(any(diag(A) < 0))
-    stop("A is not non-negative definite. Illegal input for dsc_lb \n")
+    # stop("A is not non-negative definite. Illegal input for dsc_lb \n")
+    return(list(code = -1, parms = rep(0, length(start_parms))))
   if(any(diag(A) == 0 & b < 0))
-    stop("Quadratic will reach Inf. Illegal input for dsc_lb \n")
+    # stop("Quadratic will reach Inf. Illegal input for dsc_lb \n")
+    return(list(code = -1, parms = rep(0, length(start_parms))))
   parms_new <- start_parms
   optIdx <- setdiff(c(1 : length(start_parms)), which(diag(A) == 0 & b == 0))
   for(k in 1 : max_iter)
