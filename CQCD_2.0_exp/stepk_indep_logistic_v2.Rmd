@@ -29,13 +29,22 @@ The pseudo-algorithm is:
 * Initialize `maxminOrder`, `NNarray`, `theta`
 * Compute `grad` w.r.t. all parameters
 * For `i` in `1 : niter`
-  * Optimize SR without penalty to reach the optimal log-likelihood $l_1$
+  * Optimize SR without penalty to reach the optimal $\theta_1$ and log-likelihood $l_1$
   * Select `k` predictors based on the `grad`
-  * Optimize SR without penalty to reach the optimal log-likelihood $l_2$
-  * Choose $0.5\lambda = 0.9(l_2 - l_1)$ 
-  * Optimize relevance or SR with penalty
+  * Optimize SR without penalty to reach the optimal $\theta_2$ andlog-likelihood $l_2$, notice that $\|\theta_2\|_0 - \|\theta_1\|_0 = k$
+  * $c_{\lambda} = 1.0$
+  * While($c_{\lambda}$ has not been tried)
+    * Choose $\lambda = 2 c_{\lambda}(l_2 - l_1)$ 
+    * Optimize relevance or SR with penalty with two starting values, $\theta_1$ and $\theta_2$, whose result is denoted by $\theta_3$
+    * If($\|\theta_3\|_0 - \|\theta_1\|_0 > 1$)
+      * $c_{\lambda} = c_{\lambda} + 0.1$
+    * Else If($\|\theta_3\|_0 - \|\theta_1\|_0 < 1$)
+      * $c_{\lambda} = c_{\lambda} - 0.1$
+    * Else
+      * break
+  * $\theta = \theta_3$
   * Compute LOO-CV score
-  * Update `maxminOrderPrev`, `NNarray`, `grad` based on the new `theta`
+  * Update `maxminOrderPrev`, `NNarray`, `grad` based on $\theta$
 
 ## Experiment
 Clean the environment
@@ -252,36 +261,63 @@ for(i in 1 : niter)
     optObj <- fit_SR(idx, 10, 40)
     loglk <- optObj$loglik
     theta[c(1, idx, d + 2)] <- optObj$covparms
+    theta1 <- optObj$covparms
   }else
+  {
     loglk <- gradObj$loglik
+  }
   # select covariates
   odrDec <- order(gradObj$grad[2 : (d + 1)], decreasing = T)
   if(length(idx) == 0)
     idxNew <- 1 + odrDec[1 : k]
   else
     idxNew <- c(idx, 1 + setdiff(odrDec, idx - 1)[1 : k])
-
   cat("Selected var:", setdiff(idxNew, idx), "\n")
   # Opt without penalty
   cat("\nOptimization with idxNew without penalty\n")
-  optObj <- fit_SR(idxNew, 50, 40)
+  optObj <- fit_SR(idxNew, 20, 40)
   loglkNew <- optObj$loglik
-  theta[c(1, idxNew, d + 2)] <- optObj$covparms
-  # Define lambda
-  lambda = 2 * 0.9 * (loglkNew - loglk)
-  cat("lambda = ", lambda, "\n")
-  # Opt with penalty
-  cat("\nOptimization with idxNew with penalty\n")
-  optObj <- fit_SR_pen(idxNew, 50, 40)
+  theta2 <- optObj$covparms
+  cLambda <- 1.0
+  cLambdaPrev <- -1
+  while(TRUE)
+  {
+    # Define lambda
+    lambda = 2 * cLambda * (loglkNew - loglk)
+    cat("lambda = ", lambda, "\n")
+    # Opt with penalty
+    cat("\nOptimization from theta2 with penalty\n")
+    theta <- rep(0, d + 2)
+    theta[c(1, idxNew, d + 2)] <- theta2
+    optObj <- fit_SR_pen(idxNew, 20, 40)
+    if(length(idx) > 0)
+    {
+      theta <- rep(0, d + 2)
+      theta[c(1, idx, d + 2)] <- theta1
+      cat("\nOptimization from theta1 with penalty\n")
+      optObjTmp <- fit_SR_pen(idxNew, 20, 40) # try a diff start point
+      if(optObjTmp$loglik > optObj$loglik)
+        optObj <- optObjTmp
+    }
+    # Check if the number of new predictors is 1
+    idxLocZero <- which(optObj$covparms[2 : (1 + length(idxNew))] == 0)
+    if(length(idxLocZero) < k - 1)
+      cLambda <- cLambda + 0.1
+    else if(length(idxLocZero) > k - 1)
+      cLambda <- cLambda - 0.1
+    else 
+      break
+    # Check if infinite loop occurs
+    if(cLambda == cLambdaPrev)
+        stop("\nInfinite loop in choosing lambda\n")
+    cLambdaPrev <- cLambda
+  }
   # Take out zero SR
   thetaRel <- optObj$covparms 
-  idxLocZero <- which(thetaRel[2 : (1 + length(idxNew))] == 0)
-  if(length(idxLocZero) > 0)
-  {
-    cat("Predictor", idxNew[idxLocZero], "are zerod out \n")
-    idxNew <- idxNew[-idxLocZero]
-    thetaRel <- thetaRel[-(idxLocZero + 1)]
-  }
+  cat("Predictor", idxNew[idxLocZero], "are zerod out \n")
+  idxNew <- idxNew[-idxLocZero]
+  thetaRel <- thetaRel[-(idxLocZero + 1)]
+  # Update theta
   theta <- rep(0, d + 2)
   theta[c(1, idxNew, d + 2)] <- thetaRel
   idx <- idxNew
@@ -304,10 +340,6 @@ for(i in 1 : niter)
   scoreSet[[i]] <- CV_score(theta)
   lambdaSet[[i]] <- lambda
 }
-```
-
-```{r save the result, eval = T}
-save.image(file = paste0("step", k, "_indep_pen_inv_sr_v2.RData"))
 ```
 
 ## Verdict
