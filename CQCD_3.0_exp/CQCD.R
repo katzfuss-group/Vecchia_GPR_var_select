@@ -13,6 +13,7 @@
 CQCD <- function(likfun, likfun_GDFIM, parms0, 
                  convtolOut = 1e-4, 
                  convtolIn = 1e-4, maxIterOut = 20, maxIterIn = 40, 
+                 B = diag(rep(1, length(parms))),
                  lb = rep(0, length(parms0)),
                  arg_check = function(){T}, silent = FALSE)
 {
@@ -21,9 +22,7 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
              "are smaller than their lower bounds. Stopping...  \n"))
   if(!arg_check(parms0))
     stop(paste("Argument check for parms0 failed. Stopping... \n"))
-
   parms <- parms0
-  B <- diag(rep(1, length(parms)))
   likobj <- likfun_GDFIM(parms)
   # record first loglik value
   loglikInit <- likobj$loglik
@@ -82,15 +81,17 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
                   grad = likobjNew$grad,
                   info = likobjNew$info, neval = i))
     }
+    # Stopping condition
+    objNew <- - likobjNew$loglik
+    if(
+      # ((-objNew + obj) / abs(obj) < 1e-3) || 
+       (abs(sum((parmsNew - parms) * grad)) < convtolOut))
+      break
+    # Updates for next iter
     y <- likobj$grad - likobjNew$grad
     s <- parmsNew - parms
     Bs <- as.vector(B %*% s) 
-    B = B + y %*% t(y) / sum(y * s) - Bs %*% t(Bs) / sum(Bs * s) 
-    # Stopping condition
-    objNew <- - likobjNew$loglik
-    if(((-objNew + obj) / abs(obj) < 1e-3) || 
-       (abs(sum((parmsNew - parms) * grad)) < convtolOut))
-      break
+    B = B + y %*% t(y) / sum(y * s) - Bs %*% t(Bs) / sum(Bs * s)
     parms <- parmsNew
     likobj <- likobjNew
     obj <- objNew
@@ -103,7 +104,7 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
     cat("\n")
   }
   return(list(covparms = parms, loglik = likobj$loglik, loglikInit = loglikInit,
-              grad = likobj$grad, info = likobj$info, neval = i + 1,
+              grad = likobj$grad, info = likobj$info, B = B, neval = i + 1,
               betahat = likobj$betahat))
 }
 
@@ -179,7 +180,7 @@ is_Armijo <- function(parmsNew, objNew, parms, obj, grad, c)
 gd_Armijo <- function(parms, obj, grad, c, obj_func, lb, arg_check)
 {
   idxRel <- 2 : (length(grad) - 1)
-  alpha <- 1 / max(abs(grad[idxRel]), 1e-10)
+  alpha <- min(1 / max(grad[idxRel], 1e-10), 1)
   while(sum(abs(grad[idxRel] * alpha)) > 1e-6 * length(grad[idxRel]))
   {
     parmsNew <- parms - grad * alpha
@@ -223,7 +224,5 @@ bktk_Armijo <- function(parms, obj, grad, parmsNew, c, obj_func, lb, arg_check)
     }
     alpha <- alpha / 4
   }
-  cat(paste("bktk_Armijo cannot find parameters that satisfy",
-              "the Armijo condition \n"))
   return(parms)
 }

@@ -75,7 +75,7 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
     }
     # Stopping condition
     objNew <- - likobjNew$loglik
-    if((objNew > obj) || 
+    if(((-objNew + obj) / abs(obj) < 1e-3) || 
        (abs(sum((parmsNew - parms) * grad)) < convtolOut))
       break
     parms <- parmsNew
