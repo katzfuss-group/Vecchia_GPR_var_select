@@ -64,7 +64,7 @@ source("CQCD.R")
 set.seed(123)
 ```
 Simulate GP.
-```{r simulate GP, eval = T}
+```{r simulate GP, eval = F}
 n <- 1e3
 d <- 20
 m <- 100
@@ -82,7 +82,7 @@ X <- matrix(1, n, 1)
 rm(covM, cholM)
 ```
 Function for computing the approximate LOO-CV score, assuming the squared relevance parameterized Matern25 kernel.
-```{r LOO-CV score, eval = T}
+```{r LOO-CV score, eval = F}
 CV_score <- function(theta)
 {
   idxLocsRel <- which(theta[2 : (d + 1)] > 0)
@@ -97,7 +97,7 @@ CV_score <- function(theta)
 }
 ```
 Function for fitting with SR without penalty.
-```{r func SR regression without penalty, eval = T}
+```{r func SR regression without penalty, eval = F}
 fit_SR <- function(idxNew, niterOut, niterIn)
 {
   # remove irrelevant predictors
@@ -127,7 +127,7 @@ fit_SR <- function(idxNew, niterOut, niterIn)
 }
 ```
 Logistic penalty functions.
-```{r logistic penalty, eval = T}
+```{r logistic penalty, eval = F}
 penfun <- function(theta){
   r <- theta[-c(1, length(theta))]
   rExp <- exp(- r)
@@ -145,7 +145,7 @@ ddpenfun <- function(theta){
 }
 ```
 Function for fitting with SR with penalty.
-```{r func SR regression with penalty, eval = T}
+```{r func SR regression with penalty, eval = F}
 fit_SR_pen <- function(idxNew, niterOut, niterIn)
 {
   # remove irrelevant predictors
@@ -182,7 +182,7 @@ fit_SR_pen <- function(idxNew, niterOut, niterIn)
 }
 ```
 Function for fitting with relevance with penalty.
-```{r func relevance regression with penalty, eval = T}
+```{r func relevance regression with penalty, eval = F}
 fit_rel_pen <- function(idxNew, niterOut, niterIn)
 {
   # remove irrelevant predictors
@@ -222,7 +222,7 @@ fit_rel_pen <- function(idxNew, niterOut, niterIn)
 }
 ```
 Storage variabels for plotting later.
-```{r lambda grid, eval = T}
+```{r lambda grid, eval = F}
 # define result collecting vars
 idxSet <- list()
 thetaSet <- list()
@@ -230,7 +230,7 @@ scoreSet <- list()
 lambdaSet <- list()
 ```
 Initialization.
-```{r nitialization, eval = T}
+```{r nitialization, eval = F}
 sigmasqInit <- 0.25
 tausqInit <- 0.01^2
 theta <- c(sigmasqInit, rep(1e-8, d), tausqInit)
@@ -247,7 +247,7 @@ gradObj <- vecchia_profbeta_loglik_grad_info(theta,
                                              yOdr, XOdr, locsOdr, NNarray)
 ```
 Loop over lambda
-```{r loop over lambda, eval = T}
+```{r loop over lambda, eval = F}
 niter <- 5
 startTime <- Sys.time()
 for(i in 1 : niter)
