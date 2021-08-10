@@ -1,0 +1,142 @@
+---
+title: "CQCD"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r clean environment}
+rm(list = ls())
+```
+
+## Overview
+
+This markdown is to show that Fisher scoring algorithm doesn't work as well as the CQCD algorithm when `d` is relatively small.
+
+## Preparation
+
+```{r install the moderated GpGp Pkg}
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+library(mvtnorm)
+library(lhs)
+set.seed(123)
+```
+
+## Generate training samples
+
+```{r generate training sample}
+n <- 1e4
+d <- 20
+m <- 100
+rsq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+locs <- lhs::randomLHS(n, d)
+locs <- locs * outer(rep(sqrt(n), n), 1 / sqrt(colSums(locs^2)))
+covM <- GpGp::matern25_scaledim_sqrelevance(c(sigmasq, rsq, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+y <- y - mean(y)
+lb <- c(0.01^2, rep(0, d), 0)
+arg_check_SR <- function(x) {sum(sqrt(x[-c(1, length(x))])) > 1e-4}
+rm(covM, cholM)
+```
+
+## Optimization
+
+Set initial values and lower bounds. 
+```{r init val and lower bounds}
+sigmasqInit <- 0.25
+tausqInit <- 0.01
+rsqInit <- 1
+theta <- c(sigmasqInit, rep(rsqInit, d), tausqInit)
+```
+
+Load a modified `fisher_scoring` that does not involve `beta`.
+```{r}
+if(file.exists("CQCD.R")){
+  source("CQCD.R")
+}else{
+  source("../CQCD.R")
+}
+```
+
+Optimization with Fisher scoring.
+```{r optimization with Fisher scoring}
+maxIter <- 8
+rslt <- list()
+for(crtIter in c(1 : maxIter))
+{
+  # reorder at each iteration
+  locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
+  odr <- GpGp::order_maxmin(locsScal)
+  yOdr <- y[odr]
+  locsOdr <- locs[odr, ]
+  locsScalOdr <- locsScal[odr, ]
+  NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
+  # Define functions for parameter estimation in the outer loop
+  objfun <- function(theta){
+    GpGp::vecchia_meanzero_loglik(theta, 
+                                  "matern25_scaledim_sqrelevance",
+                                  yOdr, locsOdr, 
+                                  NNarray)
+  }
+  objfun_gdfm <- function(theta){
+    GpGp::vecchia_meanzero_loglik_grad_info(theta, 
+                                            "matern25_scaledim_sqrelevance",
+                                            yOdr, locsOdr, 
+                                            NNarray)
+    }
+  optObj <- CQCD(objfun, objfun_gdfm, theta, maxIterOut = 1, 
+                 maxIterIn = 40, lb = lb, arg_check = arg_check_SR)
+  theta <- optObj$covparms
+  rslt[[crtIter]] <- theta
+}
+cat(theta, "\n")
+```
+
+```{r save the result}
+save.image(file = paste0("CQCD_d_", d, ".RData"))
+```
+
+## Plot the result
+
+```{r plot the result, eval = F}
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(reshape)
+
+dfTheta <- matrix(NA, length(rslt) + 1, d + 1)
+colnames(dfTheta) <- c("iter", paste0("var", 1 : d))
+for(i in 1 : length(rslt))
+{
+  dfTheta[i, 1] <- i
+  dfTheta[i, 2 : (d + 1)] <- sqrt(rslt[[i]][2 : (d + 1)]) 
+}
+dfTheta[i + 1, 1] <- 0
+dfTheta[i + 1, 2 : (d + 1)] <- sqrt(rsqInit)
+
+dfTheta <- as.data.frame(dfTheta)
+dfTheta <- melt(dfTheta, id = c(1))
+colnames(dfTheta) <- c("iter", "varID", "relevance")
+
+dfThetaTrue <- data.frame("varID" = paste0("var", 1 : d), 
+                          "trueVal" = sqrt(rsq))
+
+ggplot(data = dfTheta, aes(x = iter, y = relevance, col = varID)) +
+  geom_line() +
+  geom_hline(mapping = aes(col = varID, yintercept = trueVal), 
+             data = dfThetaTrue,
+             size = 0.5, lty = "dashed") + 
+  geom_hline(yintercept = 0, size = 0.5) + 
+  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.1),
+                     breaks = unique(c(sqrt(rsqInit), sqrt(rsq)))) +
+  scale_color_manual(breaks = unique(dfThetaTrue$varID),
+                     values = c(rainbow(5), rep("grey", d - 5))) +
+  theme(legend.position = "none")
+ggsave(paste0("CQCD_d_", d, ".pdf"), width = 7, height = 5)
+```
