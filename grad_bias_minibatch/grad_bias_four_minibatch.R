@@ -157,7 +157,8 @@ library(scales)
 for(i in 1 : ((d + 2) * 2)){
   df <- matrix(NA, length(batchSzVec) * 4, 4)
   varName <- dimnames(result)[[3]][i]
-  for(j in 1 : 4){ # methods
+  varName <- gsub(" ", "", varName, fixed = T)
+  for(j in 2 : 4){ # methods
     for(k in 1 : length(batchSzVec)){ # batch size
       df[(j - 1) * length(batchSzVec) + k, 1] <- batchSzVec[k]
       df[(j - 1) * length(batchSzVec) + k, 2] <- abs(mean(result[, k, i, j]))
@@ -169,14 +170,17 @@ for(i in 1 : ((d + 2) * 2)){
   colnames(df) <- c("batchsz", "bias", "MSE", "mtdID")
   df <- as.data.frame(df)
   df$mtdID <- paste("Method", df$mtdID)
-  plt <- ggplot(data = df, aes(x = batchsz, y = bias, col = mtdID)) +
+  df <- df[complete.cases(df), ]
+  plt <- ggplot(data = df, aes(x = batchsz, y = bias, col = mtdID, 
+                               lty = mtdID)) +
     geom_line() +
     scale_x_continuous(trans = pseudo_log_trans(sigma = 1),
                        breaks = batchSzVec) +
     scale_color_manual(breaks = unique(df$mtdID),
-                       values = rainbow(4))
+                       values = rainbow(4)) +
+    theme(legend.position = "none")
   if(i != 1 && i != d + 2 && i != d + 3 && i != 2*d + 4)
-    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01))
+    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.002))
   if(i <= d + 2){
     ggsave(paste0("grad_bias_", varName, ".pdf"), plot = plt,
            width = 7, height = 5)
@@ -186,14 +190,16 @@ for(i in 1 : ((d + 2) * 2)){
   }
   
 
-  plt <- ggplot(data = df, aes(x = batchsz, y = MSE, col = mtdID)) +
+  plt <- ggplot(data = df, aes(x = batchsz, y = MSE, col = mtdID, 
+                               lty = mtdID)) +
     geom_line() +
     scale_x_continuous(trans = pseudo_log_trans(sigma = 1),
                        breaks = batchSzVec) +
     scale_color_manual(breaks = unique(df$mtdID),
-                       values = rainbow(4))
+                       values = rainbow(4)) + 
+    theme(legend.position = "none")
   if(i != 1 && i != d + 2 && i != d + 3 && i != 2*d + 4)
-    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01))
+    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.0001))
   if(i <= d + 2){
     ggsave(paste0("grad_MSE_", varName, ".pdf"), plot = plt,
            width = 7, height = 5)
