@@ -32,7 +32,7 @@ set.seed(123)
 Simulate GP.
 ```{r simulate GP, eval = T}
 n <- 5e3
-d <- 1e3
+d <- 1000
 m <- 100
 k <- 3
 nOOS <- n
@@ -60,18 +60,17 @@ OOS_score <- function(theta)
 {
   idxLocsRel <- which(theta[2 : (d + 1)] > 0)
   dRel <- length(idxLocsRel)
-  locsRel <- locsOOS[, idxLocsRel, drop = F]
+  locsRel <- rbind(locs, locsOOS)[, idxLocsRel, drop = F]
   thetaRel <- theta[c(1, idxLocsRel + 1, d + 2)]
   locsRelScal <- locsRel %*% 
     diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
-  odr <- GpGp::order_maxmin(locsRelScal)
-  yOdr <- yOOS[odr]
-  locsRelScalOdr <- locsRelScal[odr, , drop = F]
-  locsRelOdr <- locsRel[odr, , drop = F]
-  NNarray <- GpGp::find_ordered_nn(locsRelScalOdr, m = m)
+  yTtl <- c(y, yOOS)
+  NNarray <- get.knnx(locsRelScal[(n + 1) : (n + nOOS), , drop = F], 
+                      locsRelScal[1 : n, , drop = F], m + 1)$nn.index
+  NNarray <- cbind((n + 1) : (n + nOOS), NNarray)
 
   - vecchia_meanzero_loglik(thetaRel, "matern25_scaledim_sqrelevance",
-                            yOdr, locsRelOdr, NNarray)$loglik
+                            yTtl, locsRel, NNarray)$loglik
 }
 ```
 Bridge penalty with `gamma = 1/4`.
@@ -221,7 +220,7 @@ for(i in 1 : niter)
 ```{r save the result, eval = T}
 save(list = c("d", "idxSet", "thetaSet", "scoreSet", "lambdaSet", "loglikSet",
               "lambdaVec", "n"), 
-     file = paste0("bridge_OOS_", n, "_", d, ".RData"))
+     file = paste0("bridge_OOS_dep_", n, "_", d, ".RData"))
 ```
 
 ## Plot
@@ -240,18 +239,19 @@ colnames(dfTheta) <- c("lambda", paste0("var", 1 : d))
 for(i in 1 : length(idxSet))
 {
   dfTheta[i, 1] <- lambdaSet[[i]]
-  dfTheta[i, 2 : (d + 1)] <- thetaSet[[i]][2 : (d + 1)]
+  dfTheta[i, 2 : (d + 1)] <- sqrt(thetaSet[[i]][2 : (d + 1)])
 }
 dfTheta <- as.data.frame(dfTheta)
 dfTheta <- melt(dfTheta, id = c(1))
-colnames(dfTheta) <- c("lambda", "varID", "value")
+colnames(dfTheta) <- c("lambda", "varID", "relevance")
 
 dfThetaTrue <- data.frame("varID" = paste0("var", 1 : d), 
-                          "trueVal" = c(100, 25, 4, 1, 0.25, rep(0, d - 5)))
+                          "trueVal" = sqrt(c(100, 25, 4, 1, 0.25, 
+                                             rep(0, d - 5))))
 ```
 Plot the change of `theta` v.s. `lambda`.
 ```{r plot theta-lambda, eval = F}
-ggplot(data = dfTheta, aes(x = lambda, y = value, col = varID)) +
+ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
   geom_line() +
   geom_hline(mapping = aes(col = varID, yintercept = trueVal), 
              data = dfThetaTrue,
@@ -264,7 +264,7 @@ ggplot(data = dfTheta, aes(x = lambda, y = value, col = varID)) +
   scale_color_manual(breaks = unique(dfThetaTrue$varID),
                      values = c(rainbow(5), rep("grey", d - 5))) +
   theme(legend.position = "none")
-ggsave(paste0("bridge_OOS_", n, "_", d, ".pdf"), width = 7, height = 5)
+ggsave(paste0("CQCD_bridge_dep_", n, "_", d, ".pdf"), width = 7, height = 5)
 ```
 Plotting score.
 ```{r plot score, eval = F}
@@ -285,7 +285,7 @@ ggplot(data = dfScore, aes(x = lambda, y = score)) +
   scale_y_continuous(trans = pseudo_log_trans(sigma = 0.1),
                      breaks = lambdaVec) +
   theme(legend.position = "none")
-ggsave(paste0("bridge_OOS_", n, "_", d, ".pdf"), width = 7, height = 5)
+ggsave(paste0("CQCD_bridge_OOS_dep_", n, "_", d, ".pdf"), width = 7, height = 5)
 ```
 
 
