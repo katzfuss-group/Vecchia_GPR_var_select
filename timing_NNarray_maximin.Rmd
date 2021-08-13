@@ -1,0 +1,98 @@
+---
+title: "timing_NNarray_maximin"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Goal
+
+* Generate $10^5$ observations on a 3D grid
+* Time maximin ordering and NNarray construction
+
+## Generate observations
+
+```{r gen obs, eval = T}
+library(RandomFields)
+RFoptions(spConform=FALSE)
+set.seed(123)
+var <- 1
+tausq <- 0.05^2
+r0 <- c(2, 1, 0.5)
+loc1 <- seq(from = 0, to = 1, length.out = 100)
+loc1 <- loc1 * 100 * sqrt(1000) / sqrt(sum(loc1^2))
+loc2 <- seq(from = 0, to = 1, length.out = 100)
+loc2 <- loc2 * 100 * sqrt(1000) / sqrt(sum(loc2^2))
+loc3 <- seq(from = 0, to = 1, length.out = 10)
+loc3 <- loc3 * 10 * sqrt(10000) / sqrt(sum(loc3^2))
+scale <- 1 / max(loc1, loc2, loc3)
+model <- RMwhittle(var = var, scale = scale, nu = 2.5)
+y <- RFsimulate(model, 
+                x = loc1 * r0[1] * scale, 
+                y = loc2 * r0[2] * scale,
+                z = loc3 * r0[3] * scale,
+                grid = T)
+```
+```{r y vec and locs mat, eval = T}
+n <- length(y)
+locs <- matrix(NA, n, length(dim(y)))
+yTmp <- rep(NA, n)
+for(i1 in 1 : 100)
+  for(i2 in 1 : 100)
+  {
+    idx <- ((i1 - 1) * 1000 + (i2 - 1) * 10 + 1) : 
+      ((i1 - 1) * 1000 + (i2 - 1) * 10 + 10) 
+    locs[idx, ] <- cbind(rep(loc1[i1], length(loc3)), 
+                         rep(loc2[i2], length(loc3)), 
+                         loc3)
+    yTmp[idx] <- y[i1, i2, ]
+  }
+y <- yTmp
+m <- 100
+```
+
+## Time maximin and NNarray
+```{r load lib, eval = T}
+library(GpGp)
+```
+
+In `d = d0`.
+```{r time maximin in d0, eval = T}
+cat("Maximin ordering with n =", n, "d =", ncol(locs), "\n")
+system.time(order_maxmin(locs))
+```
+```{r time NNarray in d0, eval = T}
+cat("NNarray with n =", n, "d =", ncol(locs), "m =", m, "\n")
+system.time(find_ordered_nn(locs = locs, m = m))
+```
+
+In `d = 1000`.
+```{r build locs with fake parms, eval = T}
+locsTtl <- cbind(locs, matrix(runif(n * (1000 - 3)), n, 1000 - 3))
+```
+
+
+```{r time maximin d 1e3, eval = T}
+cat("Maximin ordering with n =", n, "d =", 1000, "\n")
+system.time(order_maxmin(locsTtl))
+```
+
+```{r time NNarray d 1e3, eval = T}
+cat("NNarray with n =", n, "d =", 1000, "m =", m, "\n")
+system.time(find_ordered_nn(locs = locsTtl, m = m))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
