@@ -1,0 +1,324 @@
+---
+title: "SR with Logistic Penalty V1.0"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Method 
+In previous experiments, we used truncated L1 penalty $w(r) = \sum_{l = 1}^{d} \left(\frac{\lambda}{\hat{r}_l} r_l \cdot \mathbf{1}_{r_l \in (0, \hat{r}_l)} + \lambda \mathbf{1}_{r_l \ge \hat{r}_l} \right)$ for deselecting predictors. The stopping condition for selecting new predictors under each $\lambda$ was that the improvement of the BIC-like criterion, $-l(r) + \lambda \|r\|_0$ is insignificant. Notice that $w(r)$ is designed to approximate $\lambda \|r\|_0$ while making it easier for optimization.
+
+After some analysis, I think the above procedure may have the following issue:
+  
+  * The optimum of $-l(r) + w(r)$ is frequently different from that of $-l(r) + \lambda \|r\|_0$
+  * The optimization stopped before finding the optimum of $-l(r) + \lambda \|r\|_0$ for a given $\lambda$ because the optimum of $-l(r) + w(r)$ did not improve the $-l(r) + \lambda \|r\|_0$ (significantly), for example, some parameters are small but not zero
+  * Hence, it appears that many different $\lambda$s result in the same set of selected predictors and predictor values
+  
+It appears to me that it would be better if we align the optimization function for `CQCD` with the stopping condition for selecting new predictors under each $\lambda$. The logistic function seems to have the properties we desire for our penalty function. Originally, the logistic function is:
+$$
+  \frac{1}{1 + \exp(-x)}
+$$
+We can parameterize it by $\lambda$ and define the penalty function as:
+$$
+  \frac{\lambda}{1 + e^{-\lambda x}} - \frac{\lambda}{2}
+$$
+$w(r)$ becomes:
+$$
+  w(r) = \sum_{l = 1}^{d} w(r_l) = \sum_{l = 1}^{d} \left( \frac{\lambda}{1 + e^{-\lambda r_l}} - \frac{\lambda}{2} \right) \\
+  \frac{\mathrm{d} w(r_l)}{\mathrm{d} r_l} = - \frac{\lambda e^{-\lambda r_l} \cdot (-\lambda) }{(1 + e^{-\lambda r_l})^2} = \lambda^2 \frac{e^{-\lambda r_l}}{(1 + e^{-\lambda r_l})^2} \\
+  \frac{\mathrm{d}^2 w(r_l)}{\mathrm{d} r_l^2} = \lambda^2 \frac{e^{-\lambda r_l} \cdot (-\lambda) (1 + e^{-\lambda r_l})^2 - 2(1 + e^{-\lambda r_l})e^{-\lambda r_l} \cdot (-\lambda) e^{-\lambda r_l}}{(1 + e^{-\lambda r_l})^4} \\
+  = \lambda^3 \frac{-e^{-\lambda r_l} (1 + e^{-\lambda r_l}) + 2e^{-\lambda r_l} e^{-\lambda r_l}}{(1 + e^{-\lambda r_l})^3} = 
+  \lambda^3 \frac{-e^{-\lambda r_l}  + e^{-2\lambda r_l}}{(1 + e^{-\lambda r_l})^3}
+$$
+The pseudo-algorithm is:
+
+* Initialize `maxminOrder`, `NNarray`, `theta`
+* Compute `grad` w.r.t. all parameters
+* For `i` in `1 : niter`
+  * Choose $\frac{\lambda^2}{4}$ between the 1st and 2nd max of `grad`
+  * Update the penalized log-likelihood at `theta` and the new $\lambda$
+  * While(TRUE)
+    * Choose `k` new predictors based on `grad`
+    * Fit SR with penalty
+    * Compute `maxminOrderNew`, `NNarrayNew`
+    * Compute penalized log-likelihood
+    * Break if penalized log-likelihood is not improving (significantly)
+    * Update `maxminOrder`, `NNarray`, `theta`
+    * Compute `grad` w.r.t. all parameters
+  * Compute LOO-CV score for `theta` break if the score is not improving (significantly)
+  * Update `maxminOrderPrev`, `NNarrayPrev`, `thetaPrev`
+
+## Experiment
+Clean the environment
+```{r clean environment}
+rm(list = ls())
+```
+Need to install a modified version of the GpGp R package.
+```{r install the moderated GpGp Pkg}
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+library(mvtnorm)
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(FNN)
+source("CQCD.R")
+set.seed(123)
+```
+Simulate GP.
+```{r simulate GP, eval = F}
+n <- 1e3
+d <- 20
+m <- 100
+k <- 3
+rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+locs <- lhs::randomLHS(n, d)
+locs <- locs * outer(rep(sqrt(n), n), 
+                     1 / sqrt(colSums(locs^2)))
+covM <- GpGp::matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+X <- matrix(1, n, 1)
+rm(covM, cholM)
+```
+Function for computing the approximate LOO-CV score, assuming the squared relevance parameterized Matern25 kernel.
+```{r LOO-CV score, eval = F}
+CV_score <- function(theta)
+{
+  idxLocsRel <- which(theta[2 : (d + 1)] > 0)
+  locsRel <- locs[, idxLocsRel, drop = F]
+  thetaRel <- theta[c(1, idxLocsRel + 1, d + 2)]
+  dRel <- length(idxLocsRel)
+  locsRelScal <- locsRel %*% 
+    diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
+  NNarray <- get.knnx(locsRelScal, locsRelScal, m + 1)$nn.index
+  - vecchia_profbeta_loglik(thetaRel, "matern25_scaledim_sqrelevance",
+                            y, X, locsRel, NNarray)$loglik
+}
+```
+Function for fitting with SR without penalty.
+```{r func SR regression without penalty, eval = F}
+fit_SR <- function(idxNew, niterOut, niterIn)
+{
+  # remove irrelevant predictors
+  thetaRel <- theta[c(1, idxNew, 2 + d)] 
+  locsOdrRel <- locsOdr[, idxNew - 1, drop = F] 
+  lbRel <- lb[c(1, idxNew, 2 + d)] 
+  # opt with SR parameters without penalty
+  objfun <- function(theta){
+    GpGp::vecchia_profbeta_loglik(theta, "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdrRel, 
+                                            NNarray)
+  }
+  objfun_gdfm <- function(theta){
+    GpGp::vecchia_profbeta_loglik_grad_info(theta, 
+                                            "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdrRel, 
+                                            NNarray)
+  }
+  startTimeOpt1 <- Sys.time()
+  optObj <- CQCD(objfun, objfun_gdfm, thetaRel, maxIterOut = niterOut, 
+                 maxIterIn = niterIn, lb = lbRel, arg_check = arg_check_SR)
+  endTimeOpt1 <- Sys.time()
+  # cat("Opt with SR without penalty used", 
+  #     as.numeric(difftime(endTimeOpt1, startTimeOpt1, units = "secs")), 
+  #     "seconds\n")
+  optObj
+}
+```
+Logistic penalty functions.
+```{r logistic penalty, eval = F}
+penfun <- function(theta){
+  r <- theta[-c(1, length(theta))]
+  rExp <- exp(- lambda * r)
+  sum(lambda / (1 + rExp) - lambda / 2)
+}
+dpenfun <- function(theta){
+  r <- theta[-c(1, length(theta))]
+  rExp <- exp(- lambda * r)
+  c(0, lambda^2 * rExp / (1 + rExp)^2, 0)
+}
+ddpenfun <- function(theta){
+  r <- theta[-c(1, length(theta))]
+  rExp <- exp(- lambda * r)
+  diag(c(0, lambda^3 * (rExp^2 - rExp) / (1 + rExp)^3, 0))
+}
+```
+Function for fitting with SR with penalty.
+```{r func SR regression with penalty, eval = F}
+fit_SR_pen <- function(idxNew, niterOut, niterIn)
+{
+  # remove irrelevant predictors
+  thetaRel <- theta[c(1, idxNew, 2 + d)] 
+  locsOdrRel <- locsOdr[, idxNew - 1, drop = F] 
+  lbRel <- lb[c(1, idxNew, 2 + d)] 
+  # opt with SR parameters with penalty
+  objfun <- function(theta){
+    likObj <- GpGp::vecchia_profbeta_loglik(theta, 
+                                            "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdrRel, 
+                                            NNarray)
+    likObj$loglik <- likObj$loglik - penfun(theta)
+    likObj
+  }
+  objfun_gdfm <- function(theta){
+    likObj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
+                                            "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdrRel, 
+                                            NNarray)
+    likObj$loglik <- likObj$loglik - penfun(theta)
+    likObj$grad <- likObj$grad - dpenfun(theta)
+    likObj$info <- likObj$info + ddpenfun(theta)
+    likObj
+  }
+  startTimeOpt1 <- Sys.time()
+  optObj <- CQCD(objfun, objfun_gdfm, thetaRel, maxIterOut = niterOut, 
+                 maxIterIn = niterIn, lb = lbRel, arg_check = arg_check_SR)
+  endTimeOpt1 <- Sys.time()
+  # cat("Opt with SR with penalty used", 
+  #     as.numeric(difftime(endTimeOpt1, startTimeOpt1, units = "secs")), 
+  #     "seconds\n")
+  optObj
+}
+```
+Storage variabels for plotting later.
+```{r lambda grid, eval = F}
+# define result collecting vars
+idxSet <- list()
+thetaSet <- list()
+scoreSet <- list()
+lambdaSet <- list()
+```
+Initialization.
+```{r nitialization, eval = F}
+sigmasqInit <- 0.25
+tausqInit <- 0.01^2
+theta <- c(sigmasqInit, rep(1e-8, d), tausqInit)
+lb <- c(0.01^2, rep(0, d), 0.01^2) 
+arg_check_SR <- function(x) {sum(sqrt(x[-c(1, length(x))])) > 1e-4}
+arg_check_R <- function(x) {sum(x[-c(1, length(x))]) > 1e-4}
+idx <- c()
+XOdr <- X
+yOdr <- y
+locsOdr <- locs
+NNarray <- find_ordered_nn(locs, m = m)
+gradObj <- vecchia_profbeta_loglik_grad_info(theta, 
+                                             "matern25_scaledim_sqrelevance",
+                                             yOdr, XOdr, locsOdr, NNarray)
+scorePrev <- Inf # smaller score is better
+loglkPen <- Inf # smaller loglkPen is better
+```
+Loop over lambda
+```{r loop over lambda, eval = F}
+niter <- 10
+startTime <- Sys.time()
+for(i in 1 : niter)
+{
+  # Choose lambda
+  lambda <- sqrt(max(mean(sort(gradObj$grad[setdiff(2 : (d + 1), idx)], 
+                      decreasing = T)[1]), 0)) * 2
+  # Update penalized loglk
+  if(exists("lambdaPrev"))
+  {
+    loglkPen <- loglkPen + penfun(theta) -  penPrev
+  }
+  # Find optimal parms for lambda
+  while(TRUE)
+  {
+    # select covariates
+    odrDec <- order(gradObj$grad[2 : (d + 1)], decreasing = T)
+    if(length(idx) == 0)
+      idxNew <- 1 + odrDec[1 : k]
+    else
+      idxNew <- c(idx, 1 + setdiff(odrDec, idx - 1)[1 : k])
+    cat("\nlambda = ", lambda, ": selected var", setdiff(idxNew, idx), "\n")
+    # thetaRel only has the selected SR
+    thetaRel <- fit_SR_pen(idxNew, 5, 40)$covparms 
+    # order and compute loglkPen
+    locsRel <- locs[, idxNew - 1, drop = F]
+    locsRelScal <- locsRel %*% diag(sqrt(thetaRel[2 : (length(idxNew) + 1)]), 
+                                 length(idxNew), length(idxNew))
+    odrNew <- order_maxmin(locsRelScal)
+    yOdrNew <- y[odrNew]
+    locsRelScalOdrNew <- locsRelScal[odrNew, , drop = F]
+    XOdrNew <- X[odrNew, , drop = F]
+    locsRelOdrNew <- locsRel[odrNew, , drop = F]
+    NNarrayNew <- find_ordered_nn(locsRelScalOdrNew, m = m)
+    loglkPenNew <- - vecchia_profbeta_loglik(thetaRel, 
+                                             "matern25_scaledim_sqrelevance",
+                                             yOdrNew, XOdrNew, locsRelOdrNew,
+                                             NNarrayNew)$loglik + 
+      penfun(thetaRel) 
+    # if penalized log-lk not improving much
+    if(is.finite(loglkPen) &&
+       (loglkPen - loglkPenNew) / abs(loglkPen) < 1e-4) 
+    {
+      cat("\nlambda = ", lambda, ": stopped with:\nidx = ", idx, "\n",
+          "theta = ", theta[c(1, idx, d + 2)], "\n",
+          "loglkPen = ", loglkPen, "\n\n")
+      break
+    }
+    # Take out zero relevance
+    idxLocZero <- which(thetaRel[2 : (1 + length(idxNew))] == 0)
+    if(length(idxLocZero) > 0)
+    {
+      cat("Predictor", idxNew[idxLocZero], "are zerod out \n")
+      idxNew <- idxNew[-idxLocZero]
+      thetaRel <- thetaRel[-(idxLocZero + 1)]
+    }
+    # Copy val for next iter
+    idx <- idxNew
+    theta <- rep(0, d + 2)
+    theta[c(1, idx, d + 2)] <- thetaRel
+    loglkPen <- loglkPenNew
+    XOdr <- XOdrNew
+    yOdr <- yOdrNew
+    locsOdr <- locs[odrNew, , drop = F]
+    NNarray <- NNarrayNew
+    gradObj <- vecchia_profbeta_loglik_grad_info(theta, 
+                                                 "matern25_scaledim_sqrelevance",
+                                                 yOdr, XOdr, locsOdr, NNarray)
+  }
+  # compute LOO-CV score, smaller is better
+  score <- CV_score(theta)
+  cat("lambda = ", lambda, ": score = ", score, "\n\n")
+  # record results
+  idxSet[[i]] <- idx
+  thetaSet[[i]] <- theta
+  scoreSet[[i]] <- score
+  lambdaSet[[i]] <- lambda
+  # check if score is improving
+  # if(exists("idxPrev") && length(idxPrev) > 2 && score > scorePrev)
+  # {
+  #   cat("\n")
+  #   cat("Best lambda: ", lambdaPrev, "\n")
+  #   cat("idx: ", idxPrev, "\n")
+  #   cat("theta: ", thetaPrev, "\n")
+  #   break # idxPrev, thetaPrev are better
+  # }
+  # cat("lambda = ", lambda, ": score = ", score, ", LOO-CV score improving\n")
+  
+  # store prev lambda results for warm start
+  scorePrev <- score
+  lambdaPrev <- lambda
+  idxPrev <- idx
+  thetaPrev <- theta
+  penPrev <- penfun(theta)
+}
+```
+
+## Verdict
+
+There is one flaw:
+
+* If we fit SR with penalty directly, $0$ become the local optima for the (some) SR parameters. Even if the increased number of SR parameters is 1, the number should actually be greater than 1 at global optimum.
+
+It seems to me that fitting for several iterations without penalty is still necessary. The currently penalty may have the problem of being unable to reduce the relevance or SR parameters from positive to zero because the magnitude of the penalty gradient decreases too fast with relevance or SR parameters.
+
+
+
+

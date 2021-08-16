@@ -1,0 +1,335 @@
+---
+title: "Accuracy of Gradient under Mini-batching"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Method 
+* Fit the model under three `lambda` values using all samples
+* For each fitted model, compute the expectation and variance of the gradient using mini-batching
+* In the second step, different mini-batching sizes shall be considered
+
+## Experiment
+Clean the environment
+```{r clean environment}
+rm(list = ls())
+```
+Need to install a modified version of the GpGp R package.
+```{r install the moderated GpGp Pkg}
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+library(mvtnorm)
+library(lhs)
+library(FNN)
+source("CQCD.R")
+set.seed(123)
+```
+Simulate GP.
+```{r simulate GP, eval = T}
+n <- 1e4
+d <- 1e3
+m <- 100
+k <- 3
+rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+locs <- randomLHS(n, d)
+locs <- locs * outer(rep(sqrt(n), n), 
+                     1 / sqrt(colSums(locs^2)))
+covM <- matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+X <- matrix(1, n, 1)
+rm(covM, cholM)
+```
+Square-root L1 penalty functions.
+```{r logistic penalty, eval = T}
+gamma <- 1/4
+penfun <- function(theta){
+  lambda * sum(theta[-c(1, length(theta))]^(gamma))
+}
+dpenfun <- function(theta){
+  r <- theta[-c(1, length(theta))]
+  rpen <- lambda * r^(gamma - 1) * gamma
+  rpen[r < 1e-10] <- lambda * (1e-10)^(gamma - 1) * gamma
+  c(0, rpen, 0)
+}
+ddpenfun <- function(theta){
+  diag(rep(0, length(theta)))
+}
+```
+Function for model fitting given lambda.
+```{r fit model for lambda, eval = T}
+fit_order_select_SR <- function(theta0, idx0, gradObj0)
+{
+  theta <- theta0
+  idx <- idx0
+  gradObj <- gradObj0
+  while(T)
+  {
+    odrDec <- order(gradObj$grad[2 : (d + 1)], decreasing = T)
+    if(length(idx) == 0)
+      idxNew <- 1 + odrDec[1 : k]
+    else
+      idxNew <- c(idx, 1 + setdiff(odrDec, idx - 1)[1 : k])
+    idxSel <- setdiff(idxNew, idx)
+    cat("Selected var:", idxSel, "\n")
+    # opt with SR parameters
+    thetaRel <- theta[c(1, idxNew, 2 + d)] 
+    thetaRel[(length(idx) + 2) : (length(idx) + k + 1)] <- 1
+    # maximin order and NNarray
+    locsRel <- locs[, idxNew - 1, drop = F]
+    locsRelScal <- locsRel %*% 
+      diag(sqrt(thetaRel[2 : (1 + length(idxNew))]), 
+           length(idxNew), length(idxNew))
+    odr <- GpGp::order_maxmin(locsRelScal)
+    yOdr <- y[odr]
+    locsRelScalOdr <- locsRelScal[odr, , drop = F]
+    locsOdr <- locs[odr, , drop = F]
+    XOdr <- X[odr, , drop = F]
+    NNarray <- GpGp::find_ordered_nn(locsRelScalOdr, m = m)
+    # extract relevant col in locsOdr and lb
+    locsOdrRel <- locsOdr[, idxNew - 1, drop = F] 
+    lbRel <- lb[c(1, idxNew, 2 + d)] 
+    objfun <- function(theta){
+      likObj <- GpGp::vecchia_profbeta_loglik(theta, 
+                                              "matern25_scaledim_sqrelevance",
+                                              yOdr, XOdr, locsOdrRel, 
+                                              NNarray)
+      likObj$loglik <- likObj$loglik - penfun(theta)
+      likObj
+    }
+    objfun_gdfm <- function(theta){
+      likObj <- GpGp::vecchia_profbeta_loglik_grad_info(theta, 
+                                              "matern25_scaledim_sqrelevance",
+                                              yOdr, XOdr, locsOdrRel, 
+                                              NNarray)
+      likObj$loglik <- likObj$loglik - penfun(theta)
+      likObj$grad <- likObj$grad - dpenfun(theta)
+      likObj$info <- likObj$info + ddpenfun(theta)
+      likObj
+    }
+    optObj <- CQCD(objfun, objfun_gdfm, thetaRel, maxIterOut = 50, 
+                   maxIterIn = 40, lb = lbRel, arg_check = arg_check_SR)
+    # Take out zero relevance
+    thetaRel <- optObj$covparms
+    idxLocZero <- which(thetaRel[2 : (1 + length(idxNew))] == 0)
+    if(length(idxLocZero) > 0)
+    {
+      idxDesel <- idxNew[idxLocZero]
+      cat("Predictor", idxDesel, "are zerod out \n")
+      idxNew <- idxNew[-idxLocZero]
+      thetaRel <- thetaRel[-(idxLocZero + 1)]
+    }
+    theta <- rep(0, length(theta))
+    theta[c(1, idxNew, length(theta))] <- thetaRel
+    idx <- idxNew
+    # compute grad with thetaNew
+    gradObj <- 
+      GpGp::vecchia_profbeta_loglik_grad_info(theta, 
+                                              "matern25_scaledim_sqrelevance",
+                                              yOdr, XOdr, locsOdr,
+                                              NNarray)
+    # break condition
+    if((length(idxLocZero) > 0 && any(idxSel %in% idxDesel)) || 
+       length(idx) > 20)
+      break
+  }
+  cat("lambda =", lambda, "idx =", idx, "\n\n")
+  return(list(lambda = lambda, theta = theta, idx = idx, locsOdr = locsOdr, 
+              yOdr = yOdr, XOdr = XOdr, NNarray = NNarray, gradObj = gradObj))
+}
+```
+
+Storage variabels for plotting later.
+```{r lambda grid, eval = T}
+# define result collecting vars
+idxSet <- list()
+thetaSet <- list()
+lambdaSet <- list()
+loglikSet <- list()
+```
+Initialization.
+```{r nitialization, eval = T}
+sigmasqInit <- 0.25
+tausqInit <- 0.01^2
+theta <- c(sigmasqInit, rep(1e-8, d), tausqInit)
+lb <- c(0.01^2, rep(0, d), 0.01^2) 
+arg_check_SR <- function(x) {sum(sqrt(x[-c(1, length(x))])) > 1e-4}
+arg_check_R <- function(x) {sum(x[-c(1, length(x))]) > 1e-4}
+idx <- c()
+XOdr <- X
+yOdr <- y
+locsOdr <- locs
+NNarray <- find_ordered_nn(locs, m = m)
+gradObj <- vecchia_profbeta_loglik_grad_info(theta, 
+                                            "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdr, NNarray)
+```
+Loop over lambda.
+```{r loop over lambda, eval = T}
+lambdaVec <- rev(c(1, 10, 100))
+niter <- length(lambdaVec)
+for(i in 1 : niter)
+{
+  cat("\n====================================\n")
+  lambda = lambdaVec[i]
+  cat("i =", i, "lambda =", lambda, "\n")
+  # fit model with penalty
+  optObj <- fit_order_select_SR(theta, idx, gradObj)
+  theta <- optObj$theta
+  idx <- optObj$idx
+  gradObj <- optObj$gradObj
+  # Store results
+  idxSet[[i]] <- optObj$idx
+  thetaSet[[i]] <- optObj$theta
+  lambdaSet[[i]] <- lambda
+  loglikSet[[i]] <- optObj$gradObj$loglik
+}
+```
+
+Function for computing the mean, variance, MSE of the derivatives.
+```{r minibat mean/var func, eval = T}
+mean_var_minbat <- function(theta, batchSz)
+{
+  nIter <- 100
+  idxRel <- which(theta[2 : (d + 1)] > 0) + 1
+  thetaRel <- theta[theta > 0]
+  gradSum <- rep(0, length(thetaRel))
+  gradMSE <- rep(0, length(thetaRel))
+  dpen <- dpenfun(thetaRel)
+  for(i in 1 : nIter)
+  {
+    # minibatch
+    idxBat <- sample(1 : n, batchSz, F)
+    # maximin order and NNarray
+    locsRel <- locs[idxBat, idxRel - 1, drop = F]
+    locsRelScal <- locsRel %*% 
+      diag(sqrt(thetaRel[2 : (1 + length(idxRel))]), 
+           length(idxRel), length(idxRel))
+    odr <- GpGp::order_maxmin(locsRelScal)
+    yOdr <- y[idxBat[odr]]
+    locsRelScalOdr <- locsRelScal[odr, , drop = F]
+    locsOdrRel <- locs[idxBat[odr], idxRel - 1, drop = F]
+    XOdr <- X[idxBat[odr], , drop = F]
+    NNarray <- GpGp::find_ordered_nn(locsRelScalOdr, m = m)
+    
+    gradObj <- vecchia_profbeta_loglik_grad_info(thetaRel, 
+                                            "matern25_scaledim_sqrelevance",
+                                            yOdr, XOdr, locsOdrRel, 
+                                            NNarray)
+    gradSum <- gradSum + gradObj$grad
+    gradMSE <- gradMSE + (gradObj$grad - dpen)^2
+  }
+  gradBias <- gradSum / nIter - dpen
+  gradMSE <- gradMSE / nIter
+  gradVar <- gradMSE - gradBias^2
+  return(list(gradBias = gradBias, gradVar = gradVar, gradMSE = gradMSE))
+}
+```
+Compute the mean, variance, MSE of the derivatives under different `lambda`.
+```{r compute mean var and MSE, eval = T}
+batchSzVec <- c(10, 20, 50, 100, 200, 500, 1000, 2000, 5000)
+rslt <- list()
+for(i in 1 : length(lambdaSet))
+{
+  lambda <- lambdaSet[[i]]
+  theta <- thetaSet[[i]]
+  idx <- idxSet[[i]]
+  rslt[[i]] <- list()
+  for(j in 1 : length(batchSzVec))
+  {
+    rslt[[i]][[j]] <- matrix(NA, length(idx) + 2, 3)
+    m <- min(100, batchSzVec[j] - 1)
+    summaryObj <- mean_var_minbat(theta, batchSzVec[j])
+    cat("lambda", lambda, "batchSz", batchSzVec[j], "has bias", 
+        summaryObj$gradBias, "\n")
+    rslt[[i]][[j]][, 1] <- summaryObj$gradBias
+    rslt[[i]][[j]][, 2] <- summaryObj$gradVar
+    rslt[[i]][[j]][, 3] <- summaryObj$gradMSE
+  }
+}
+```
+
+```{r save the result, eval = T}
+save(list = c("d", "idxSet", "thetaSet", "lambdaSet", "loglikSet",
+              "lambdaVec", "n", "rslt", "batchSzVec"), 
+     file = paste0("minibat_grad_accu_", n, "_", d, ".RData"))
+```
+
+## Show results
+Bias table 
+```{r bias table, eval = F}
+idxBias <- 1
+for(i in 1 : length(lambdaSet))
+{
+  lambda <- lambdaSet[[i]]
+  idx <- idxSet[[i]]
+  mydf <- matrix(NA, length(batchSzVec), length(idx) + 3)
+  colnames(mydf) <- c("batch_size", "variance", paste0("var", idx - 1), 
+                      "nugget")
+  for(j in 1 : length(batchSzVec))
+  {
+    mydf[j, 1] <- batchSzVec[j]
+    mydf[j, 2 : (length(idx) + 3)] <- rslt[[i]][[j]][, idxBias]
+  }
+  cat("lambda = ", lambda, "\n")
+  show(mydf)
+  cat("\n")
+}
+```
+Variance table 
+```{r var table, eval = F}
+idxVar <- 2
+for(i in 1 : length(lambdaSet))
+{
+  lambda <- lambdaSet[[i]]
+  idx <- idxSet[[i]]
+  mydf <- matrix(NA, length(batchSzVec), length(idx) + 3)
+  colnames(mydf) <- c("batch_size", "variance", paste0("var", idx - 1), 
+                      "nugget")
+  for(j in 1 : length(batchSzVec))
+  {
+    mydf[j, 1] <- batchSzVec[j]
+    mydf[j, 2 : (length(idx) + 3)] <- rslt[[i]][[j]][, idxVar]
+  }
+  cat("lambda = ", lambda, "\n")
+  show(mydf)
+  cat("\n")
+}
+```
+MSE table 
+```{r MSE table, eval = F}
+idxMSE <- 3
+for(i in 1 : length(lambdaSet))
+{ 
+  lambda <- lambdaSet[[i]]
+  idx <- idxSet[[i]]
+  mydf <- matrix(NA, length(batchSzVec), length(idx) + 3)
+  colnames(mydf) <- c("batch_size", "variance", paste0("var", idx - 1), 
+                      "nugget")
+  for(j in 1 : length(batchSzVec))
+  {
+    mydf[j, 1] <- batchSzVec[j]
+    mydf[j, 2 : (length(idx) + 3)] <- rslt[[i]][[j]][, idxMSE] / (batchSzVec[j])^2
+  }
+  cat("lambda = ", lambda, "\n")
+  show(mydf)
+  cat("\n")
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+

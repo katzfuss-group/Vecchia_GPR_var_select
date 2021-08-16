@@ -2,6 +2,5 @@
 *.RData
 *.pdf
 *.R
-*.Rmd
 *.html
 *.DS_Store
