@@ -121,7 +121,7 @@ for(i in 1 : length(theta)){
 rm(covM, covMInv, dcovM)
 
 # Compute bias for each method
-nIter <- 1000
+nIter <- 5000
 result <- array(dim = c(nIter, length(batchSzVec), (d + 2) * 2, 4), 
                 dimnames = list(paste("Iter", 1 : nIter), 
                                 paste("Batchsize", batchSzVec),
@@ -130,21 +130,40 @@ result <- array(dim = c(nIter, length(batchSzVec), (d + 2) * 2, 4),
                                 paste("Method", 1 : 4)))
 for(j in 1 : length(batchSzVec)){
   batchSz <- batchSzVec[j]
-  for(i in 1 : nIter){
-    result[i, j, 1 : (d + 2), 1] <- mtd1(batchSz) / batchSz - gradFull / n
-    result[i, j, 1 : (d + 2), 2] <- mtd2(batchSz) / batchSz - gradFull / n
-    result[i, j, 1 : (d + 2), 3] <- mtd3(batchSz) / batchSz - gradFull / n
-    result[i, j, 1 : (d + 2), 4] <- mtd4(batchSz) / batchSz - gradFull / n
-    
-    result[i, j, (d + 3) : ((d + 2) * 2), 1] <- mtd1(batchSz) / batchSz - 
-      gradExact / n
-    result[i, j, (d + 3) : ((d + 2) * 2), 2] <- mtd2(batchSz) / batchSz - 
-      gradExact / n
-    result[i, j, (d + 3) : ((d + 2) * 2), 3] <- mtd3(batchSz) / batchSz - 
-      gradExact / n
-    result[i, j, (d + 3) : ((d + 2) * 2), 4] <- mtd4(batchSz) / batchSz - 
-      gradExact / n
+  if(batchSz > 200){
+    for(i in 1 : (nIter / 10)){
+      result[i, j, 1 : (d + 2), 1] <- mtd1(batchSz) / batchSz - gradFull / n
+      result[i, j, 1 : (d + 2), 2] <- mtd2(batchSz) / batchSz - gradFull / n
+      result[i, j, 1 : (d + 2), 3] <- mtd3(batchSz) / batchSz - gradFull / n
+      result[i, j, 1 : (d + 2), 4] <- mtd4(batchSz) / batchSz - gradFull / n
+      
+      result[i, j, (d + 3) : ((d + 2) * 2), 1] <- mtd1(batchSz) / batchSz - 
+        gradExact / n
+      result[i, j, (d + 3) : ((d + 2) * 2), 2] <- mtd2(batchSz) / batchSz - 
+        gradExact / n
+      result[i, j, (d + 3) : ((d + 2) * 2), 3] <- mtd3(batchSz) / batchSz - 
+        gradExact / n
+      result[i, j, (d + 3) : ((d + 2) * 2), 4] <- mtd4(batchSz) / batchSz - 
+        gradExact / n
+    }
+  }else{
+    for(i in 1 : nIter){
+      result[i, j, 1 : (d + 2), 1] <- mtd1(batchSz) / batchSz - gradFull / n
+      result[i, j, 1 : (d + 2), 2] <- mtd2(batchSz) / batchSz - gradFull / n
+      result[i, j, 1 : (d + 2), 3] <- mtd3(batchSz) / batchSz - gradFull / n
+      result[i, j, 1 : (d + 2), 4] <- mtd4(batchSz) / batchSz - gradFull / n
+      
+      result[i, j, (d + 3) : ((d + 2) * 2), 1] <- mtd1(batchSz) / batchSz - 
+        gradExact / n
+      result[i, j, (d + 3) : ((d + 2) * 2), 2] <- mtd2(batchSz) / batchSz - 
+        gradExact / n
+      result[i, j, (d + 3) : ((d + 2) * 2), 3] <- mtd3(batchSz) / batchSz - 
+        gradExact / n
+      result[i, j, (d + 3) : ((d + 2) * 2), 4] <- mtd4(batchSz) / batchSz - 
+        gradExact / n
+    }
   }
+  
   cat("Batchsize = ", batchSz, " is done\n")
 }
 
@@ -154,20 +173,21 @@ save.image("grad_bias_four_minibatch.RData")
 # plot the results
 library(ggplot2)
 library(scales)
-for(i in 1 : ((d + 2) * 2)){
+for(i in 2 : (d + 1)){
   df <- matrix(NA, length(batchSzVec) * 4, 4)
   varName <- dimnames(result)[[3]][i]
   varName <- gsub(" ", "", varName, fixed = T)
   for(j in 2 : 4){ # methods
     for(k in 1 : length(batchSzVec)){ # batch size
       df[(j - 1) * length(batchSzVec) + k, 1] <- batchSzVec[k]
-      df[(j - 1) * length(batchSzVec) + k, 2] <- abs(mean(result[, k, i, j]))
+      df[(j - 1) * length(batchSzVec) + k, 2] <- abs(mean(result[, k, i, j], 
+                                                          na.rm = T))
       df[(j - 1) * length(batchSzVec) + k, 3] <-
-        mean(result[, k, i, j]^2)
+        sqrt(mean(result[, k, i, j]^2, na.rm = T))
       df[(j - 1) * length(batchSzVec) + k, 4] <- j
     }
   }
-  colnames(df) <- c("batchsz", "bias", "MSE", "mtdID")
+  colnames(df) <- c("batchsz", "bias", "RMSE", "mtdID")
   df <- as.data.frame(df)
   df$mtdID <- paste("Method", df$mtdID)
   df <- df[complete.cases(df), ]
@@ -180,7 +200,7 @@ for(i in 1 : ((d + 2) * 2)){
                        values = rainbow(4)) +
     theme(legend.position = "none")
   if(i != 1 && i != d + 2 && i != d + 3 && i != 2*d + 4)
-    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.002))
+    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.005))
   if(i <= d + 2){
     ggsave(paste0("grad_bias_", varName, ".pdf"), plot = plt,
            width = 7, height = 5)
@@ -190,7 +210,7 @@ for(i in 1 : ((d + 2) * 2)){
   }
   
 
-  plt <- ggplot(data = df, aes(x = batchsz, y = MSE, col = mtdID, 
+  plt <- ggplot(data = df, aes(x = batchsz, y = RMSE, col = mtdID, 
                                lty = mtdID)) +
     geom_line() +
     scale_x_continuous(trans = pseudo_log_trans(sigma = 1),
@@ -199,12 +219,12 @@ for(i in 1 : ((d + 2) * 2)){
                        values = rainbow(4)) + 
     theme(legend.position = "none")
   if(i != 1 && i != d + 2 && i != d + 3 && i != 2*d + 4)
-    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.0001))
+    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01))
   if(i <= d + 2){
-    ggsave(paste0("grad_MSE_", varName, ".pdf"), plot = plt,
+    ggsave(paste0("grad_RMSE_", varName, ".pdf"), plot = plt,
            width = 7, height = 5)
   }else{
-    ggsave(paste0("grad_MSE_exact_", varName, ".pdf"), plot = plt,
+    ggsave(paste0("grad_RMSE_exact_", varName, ".pdf"), plot = plt,
            width = 7, height = 5)
   }
 }

@@ -195,7 +195,7 @@ gradObj <- vecchia_meanzero_loglik_grad_info(theta,
 ```
 Loop over lambda.
 ```{r loop over lambda, eval = T}
-lambdaVec <- rev(c(0, kronecker(10^(-1 : max(round(log10(n)) - 2, 1)), 
+lambdaVec <- rev(c(0, kronecker(10^(-1 : max(round(log10(n)) - 1, 1)), 
                                 c(1, 2, 5))))
 niter <- length(lambdaVec)
 for(i in 1 : niter)
