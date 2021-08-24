@@ -1,0 +1,460 @@
+---
+title: "Bridge GP Regression"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Method 
+Use OOS score and bridge penalty and stop if any newly added predictor is deselected in the same iteration.
+
+## Experiment
+Clean the environment
+```{r clean environment}
+rm(list = ls())
+```
+Need to install a modified version of the GpGp R package.
+```{r install the moderated GpGp Pkg}
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+library(mvtnorm)
+library(lhs)
+library(FNN)
+library(scoringRules)
+if(file.exists("CQCD.R")){
+  source("CQCD.R")
+}else{
+  source("../CQCD.R")
+}
+set.seed(123)
+```
+Simulate GP.
+```{r simulate GP, eval = F}
+n <- 5e3
+d <- 1e3
+m <- 100
+k <- 3
+nOOS <- n
+rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+locs <- randomLHS(n + nOOS, d)
+locs <- locs * outer(rep(sqrt(n + nOOS), n + nOOS), 
+                     1 / sqrt(colSums(locs^2)))
+covM <- matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n + nOOS))
+locsOOS <- locs[(n + 1) : (n + nOOS), , drop = F]
+yOOS <- y[(n + 1) : (n + nOOS)]
+locs <- locs[1 : n, , drop = F]
+y <- y[1 : n]
+rm(covM, cholM)
+```
+Function for computing the approximate OOS score, assuming the squared relevance parameterized Matern25 kernel.
+```{r OOS score, eval = F}
+OOS_score_loglik <- function(theta)
+{
+  idxLocsRel <- which(theta[2 : (d + 1)] > 0)
+  dRel <- length(idxLocsRel)
+  locsRel <- rbind(locs, locsOOS)[, idxLocsRel, drop = F]
+  thetaRel <- theta[c(1, idxLocsRel + 1, d + 2)]
+  locsRelScal <- locsRel %*% 
+    diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
+  yTtl <- c(y, yOOS)
+  NNarray <- get.knnx(locsRelScal[(n + 1) : (n + nOOS), , drop = F], 
+                      locsRelScal[1 : n, , drop = F], m)$nn.index
+  NNarray <- cbind((n + 1) : (n + nOOS), NNarray)
+
+  - vecchia_meanzero_loglik(thetaRel, "matern25_scaledim_sqrelevance",
+                            yTtl, locsRel, NNarray)$loglik
+}
+OOS_score_RMSE <- function(theta)
+{
+  idxLocsRel <- which(theta[2 : (d + 1)] > 0)
+  dRel <- length(idxLocsRel)
+  locsRel <- rbind(locs, locsOOS)[, idxLocsRel, drop = F]
+  thetaRel <- theta[c(1, idxLocsRel + 1, d + 2)]
+  locsRelScal <- locsRel %*% 
+    diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
+  yTtl <- c(y, yOOS)
+  NNarray <- get.knnx(locsRelScal[(n + 1) : (n + nOOS), , drop = F], 
+                      locsRelScal[1 : n, , drop = F], m)$nn.index
+  NNarray <- cbind(NNarray, (n + 1) : (n + nOOS))
+  mus <- rep(NA, nOOS)
+  for(i in 1 : nOOS){
+    NN <- NNarray[i, ]
+    K <- matern25_scaledim_sqrelevance(thetaRel, locsRel[NN, , drop = F])
+    L <- t(chol(K))
+    mus[i] <- L[m + 1, 1 : m] %*% 
+      forwardsolve(L[1 : m, 1 : m], y[NN[1 : m]])
+  }
+  sqrt(mean((yOOS - mus)^2))
+}
+OOS_score_CRPS <- function(theta)
+{
+  idxLocsRel <- which(theta[2 : (d + 1)] > 0)
+  dRel <- length(idxLocsRel)
+  locsRel <- rbind(locs, locsOOS)[, idxLocsRel, drop = F]
+  thetaRel <- theta[c(1, idxLocsRel + 1, d + 2)]
+  locsRelScal <- locsRel %*% 
+    diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
+  yTtl <- c(y, yOOS)
+  NNarray <- get.knnx(locsRelScal[(n + 1) : (n + nOOS), , drop = F], 
+                      locsRelScal[1 : n, , drop = F], m)$nn.index
+  NNarray <- cbind(NNarray, (n + 1) : (n + nOOS))
+  mus <- rep(NA, nOOS)
+  sds <- rep(NA, nOOS)
+  for(i in 1 : nOOS){
+    NN <- NNarray[i, ]
+    K <- matern25_scaledim_sqrelevance(thetaRel, locsRel[NN, , drop = F])
+    L <- t(chol(K))
+    mus[i] <- L[m + 1, 1 : m] %*% 
+      forwardsolve(L[1 : m, 1 : m], y[NN[1 : m]])
+    sds[i] <- L[m+1, m+1]
+  }
+  mean(crps_norm(y = yOOS, mean = mus, sd = sds))
+}
+```
+Bridge penalty with `gamma = 1/4`.
+```{r logistic penalty, eval = F}
+gamma <- 1/4
+penfun <- function(theta){
+  lambda * sum(theta[-c(1, length(theta))]^(gamma))
+}
+dpenfun <- function(theta){
+  r <- theta[-c(1, length(theta))]
+  rpen <- lambda * r^(gamma - 1) * gamma
+  rpen[r < 1e-10] <- lambda * (1e-10)^(gamma - 1) * gamma
+  c(0, rpen, 0)
+}
+ddpenfun <- function(theta){
+  diag(rep(0, length(theta)))
+}
+```
+Function for model fitting given lambda.
+```{r fit model for lambda, eval = F}
+forward_backward <- function(theta0, idx0, gradObj0)
+{
+  theta <- theta0
+  idx <- idx0
+  gradObj <- gradObj0
+  while(T)
+  {
+    odrDec <- order(gradObj$grad[2 : (d + 1)], decreasing = T)
+    if(length(idx) == 0)
+      idxNew <- 1 + odrDec[1 : k]
+    else
+      idxNew <- c(idx, 1 + setdiff(odrDec, idx - 1)[1 : k])
+    idxSel <- setdiff(idxNew, idx)
+    cat("Selected var:", idxSel, "\n")
+    # opt with SR parameters
+    thetaRel <- theta[c(1, idxNew, 2 + d)] 
+    thetaRel[(length(idx) + 2) : (length(idx) + k + 1)] <- 1
+    # maximin order and NNarray
+    locsRel <- locs[, idxNew - 1, drop = F]
+    locsRelScal <- locsRel %*% 
+      diag(sqrt(thetaRel[2 : (1 + length(idxNew))]), 
+           length(idxNew), length(idxNew))
+    odr <- GpGp::order_maxmin(locsRelScal)
+    yOdr <- y[odr]
+    locsRelScalOdr <- locsRelScal[odr, , drop = F]
+    locsOdr <- locs[odr, , drop = F]
+    NNarray <- GpGp::find_ordered_nn(locsRelScalOdr, m = m)
+    # extract relevant col in locsOdr and lb
+    locsOdrRel <- locsOdr[, idxNew - 1, drop = F] 
+    lbRel <- lb[c(1, idxNew, 2 + d)] 
+    objfun <- function(theta){
+      likObj <- GpGp::vecchia_meanzero_loglik(theta, 
+                                              "matern25_scaledim_sqrelevance",
+                                              yOdr, locsOdrRel, 
+                                              NNarray)
+      likObj$loglik <- likObj$loglik - penfun(theta)
+      likObj
+    }
+    objfun_gdfm <- function(theta){
+      likObj <- GpGp::vecchia_meanzero_loglik_grad_info(theta, 
+                                              "matern25_scaledim_sqrelevance",
+                                              yOdr, locsOdrRel, 
+                                              NNarray)
+      likObj$loglik <- likObj$loglik - penfun(theta)
+      likObj$grad <- likObj$grad - dpenfun(theta)
+      likObj$info <- likObj$info + ddpenfun(theta)
+      likObj
+    }
+    optObj <- CQCD(objfun, objfun_gdfm, thetaRel, maxIterOut = 50, 
+                   maxIterIn = 40, lb = lbRel, arg_check = arg_check_SR)
+    # Take out zero relevance
+    thetaRel <- optObj$covparms
+    idxLocZero <- which(thetaRel[2 : (1 + length(idxNew))] == 0)
+    if(length(idxLocZero) > 0)
+    {
+      idxDesel <- idxNew[idxLocZero]
+      cat("Predictor", idxDesel, "are zerod out \n")
+      idxNew <- idxNew[-idxLocZero]
+      thetaRel <- thetaRel[-(idxLocZero + 1)]
+    }
+    theta <- rep(0, length(theta))
+    theta[c(1, idxNew, length(theta))] <- thetaRel
+    idx <- idxNew
+    # compute grad with thetaNew
+    gradObj <- 
+      GpGp::vecchia_meanzero_loglik_grad_info(theta, 
+                                              "matern25_scaledim_sqrelevance",
+                                              yOdr, locsOdr, NNarray)
+    # break condition
+    if((length(idxLocZero) > 0 && any(idxSel %in% idxDesel)) || 
+       length(idx) > 20)
+      break
+  }
+  cat("lambda =", lambda, "idx =", idx, "\n\n")
+  return(list(lambda = lambda, theta = theta, idx = idx, gradObj = gradObj))
+}
+```
+
+Storage variabels for plotting later.
+```{r lambda grid, eval = F}
+# define result collecting vars
+idxSet <- list()
+thetaSet <- list()
+scoreSetLoglik <- list()
+scoreSetRMSE <- list()
+scoreSetCRPS <- list()
+lambdaSet <- list()
+loglikSet <- list()
+```
+Initialization.
+```{r initialization, eval = F}
+sigmasqInit <- 0.25
+tausqInit <- 0.01
+theta <- c(sigmasqInit, rep(1e-8, d), tausqInit)
+lb <- c(0.01^2, rep(0, d), 0.01^2) 
+arg_check_SR <- function(x) {sum(sqrt(x[-c(1, length(x))])) > 1e-4}
+idx <- c()
+yOdr <- y
+locsOdr <- locs
+NNarray <- find_ordered_nn(locs, m = m)
+gradObj <- vecchia_meanzero_loglik_grad_info(theta, 
+                                            "matern25_scaledim_sqrelevance",
+                                            yOdr, locsOdr, NNarray)
+lb[which.max(gradObj$grad[2 : (d + 1)]) + 1] <- 2e-4
+```
+Loop over lambda.
+```{r loop over lambda, eval = F}
+lambdaVec <- rev(c(0, 2^(seq(from = log2(0.125), to = log2(1000), by = 1))))
+niter <- length(lambdaVec)
+for(i in 1 : niter)
+{
+  cat("\n====================================\n")
+  lambda = lambdaVec[i]
+  cat("i =", i, "lambda =", lambda, "\n")
+  # fit model with penalty
+  optObj <- forward_backward(theta, idx, gradObj)
+  theta <- optObj$theta
+  idx <- optObj$idx
+  gradObj <- optObj$gradObj
+  # Store results
+  idxSet[[i]] <- optObj$idx
+  thetaSet[[i]] <- optObj$theta
+  scoreSetLoglik[[i]] <- OOS_score_loglik(optObj$theta)
+  scoreSetRMSE[[i]] <- OOS_score_RMSE(optObj$theta)
+  scoreSetCRPS[[i]] <- OOS_score_CRPS(optObj$theta)
+  lambdaSet[[i]] <- lambda
+  loglikSet[[i]] <- optObj$gradObj$loglik
+}
+```
+
+```{r save the result, eval = F}
+save(list = c("d", "idxSet", "thetaSet", "scoreSetLoglik", "scoreSetRMSE",
+              "scoreSetCRPS", "lambdaSet", "loglikSet",
+              "lambdaVec", "n"), 
+     file = paste0("bridge_OOS_", n, "_", d, ".RData"))
+```
+
+## Plot
+```{r load data, eval = T}
+load("bridge_OOS_5000_1000.RData")
+```
+
+Load libraries for plotting.
+```{r lib for plotting, eval = T}
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(reshape)
+```
+Build dataframe for plotting theta.
+```{r df theta, eval = T}
+d <- length(thetaSet[[1]]) - 2
+dfTheta <- matrix(NA, length(idxSet), d + 1)
+colnames(dfTheta) <- c("lambda", paste0("var", 1 : d))
+for(i in 1 : length(idxSet))
+{
+  dfTheta[i, 1] <- lambdaSet[[i]]
+  dfTheta[i, 2 : (d + 1)] <- sqrt(thetaSet[[i]][2 : (d + 1)])
+}
+dfTheta <- as.data.frame(dfTheta)
+dfTheta <- melt(dfTheta, id = c(1))
+colnames(dfTheta) <- c("lambda", "varID", "relevance")
+
+dfThetaTrue <- data.frame("varID" = paste0("var", 1 : d), 
+                          "trueVal" = sqrt(c(100, 25, 4, 1, 0.25, 
+                                             rep(0, d - 5))))
+```
+
+Loglik score.
+```{r plot loglik score, eval = T}
+dfScore <- matrix(NA, length(idxSet), 2)
+colnames(dfScore) <- c("lambda", "score")
+for(i in 1 : length(idxSet))
+{
+  dfScore[i, 1] <- lambdaSet[[i]]
+  dfScore[i, 2] <- scoreSetLoglik[[i]]
+}
+dfScore <- as.data.frame(dfScore)
+
+ggplot(data = dfScore, aes(x = lambda, y = score)) + 
+  geom_line() +
+  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
+                     breaks = lambdaVec[seq(from = 1, 
+                                            to = length(lambdaVec), by = 2)]) +
+  theme(legend.position = "none")
+
+dfScoreChg <- dfScore
+colnames(dfScoreChg) <- c("lambda", "scoreChg")
+dfScoreChg$scoreChg <- c(1, 1 - dfScoreChg$scoreChg[2:nrow(dfScoreChg)] / 
+                           abs(dfScoreChg$scoreChg[1:(nrow(dfScoreChg) - 1)]))
+
+ggplot(data = dfScoreChg, aes(x = lambda, y = scoreChg)) + 
+  geom_line() +
+  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
+                     breaks = lambdaVec[seq(from = 1, 
+                                            to = length(lambdaVec), by = 2)]) +
+  theme(legend.position = "none")
+
+lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01)[1]]
+
+ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
+  geom_line() +
+  geom_hline(mapping = aes(col = varID, yintercept = trueVal), 
+             data = dfThetaTrue,
+             size = 0.5, lty = "dashed") + 
+  geom_vline(xintercept = lambdaStop, size = 1.0, lty = "dotted", 
+             color = "brown") + 
+  geom_hline(yintercept = 0, size = 0.5) + 
+  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01),
+                     breaks = unique(dfThetaTrue$trueVal)) +
+  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
+                     breaks = lambdaVec[seq(from = 1, 
+                                            to = length(lambdaVec), by = 2)]) +
+  scale_color_manual(breaks = unique(dfThetaTrue$varID),
+                     values = c(rainbow(5), rep("grey", d - 5))) +
+  theme(legend.position = "none")
+```
+
+RMSE score.
+```{r plot RMSE score, eval = T}
+dfScore <- matrix(NA, length(idxSet), 2)
+colnames(dfScore) <- c("lambda", "score")
+for(i in 1 : length(idxSet))
+{
+  dfScore[i, 1] <- lambdaSet[[i]]
+  dfScore[i, 2] <- scoreSetRMSE[[i]]
+}
+dfScore <- as.data.frame(dfScore)
+
+ggplot(data = dfScore, aes(x = lambda, y = score)) + 
+  geom_line() +
+  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
+                     breaks = lambdaVec[seq(from = 1, 
+                                            to = length(lambdaVec), by = 2)]) +
+  theme(legend.position = "none")
+
+dfScoreChg <- dfScore
+colnames(dfScoreChg) <- c("lambda", "scoreChg")
+dfScoreChg$scoreChg <- c(1, 1 - dfScoreChg$scoreChg[2:nrow(dfScoreChg)] / 
+                           abs(dfScoreChg$scoreChg[1:(nrow(dfScoreChg) - 1)]))
+
+ggplot(data = dfScoreChg, aes(x = lambda, y = scoreChg)) + 
+  geom_line() +
+  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
+                     breaks = lambdaVec[seq(from = 1, 
+                                            to = length(lambdaVec), by = 2)]) +
+  theme(legend.position = "none")
+
+lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01)[1]]
+
+ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
+  geom_line() +
+  geom_hline(mapping = aes(col = varID, yintercept = trueVal), 
+             data = dfThetaTrue,
+             size = 0.5, lty = "dashed") + 
+  geom_vline(xintercept = lambdaStop, size = 1.0, lty = "dotted", 
+             color = "brown") + 
+  geom_hline(yintercept = 0, size = 0.5) + 
+  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01),
+                     breaks = unique(dfThetaTrue$trueVal)) +
+  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
+                     breaks = lambdaVec[seq(from = 1, 
+                                            to = length(lambdaVec), by = 2)]) +
+  scale_color_manual(breaks = unique(dfThetaTrue$varID),
+                     values = c(rainbow(5), rep("grey", d - 5))) +
+  theme(legend.position = "none")
+ggsave(paste0("CQCD_bridge_", n, "_", d, ".pdf"), width = 7, height = 5)
+```
+
+CRPS score.
+```{r plot CRPS score, eval = T}
+dfScore <- matrix(NA, length(idxSet), 2)
+colnames(dfScore) <- c("lambda", "score")
+for(i in 1 : length(idxSet))
+{
+  dfScore[i, 1] <- lambdaSet[[i]]
+  dfScore[i, 2] <- scoreSetCRPS[[i]]
+}
+dfScore <- as.data.frame(dfScore)
+
+ggplot(data = dfScore, aes(x = lambda, y = score)) + 
+  geom_line() +
+  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
+                     breaks = lambdaVec[seq(from = 1, 
+                                            to = length(lambdaVec), by = 2)]) +
+  theme(legend.position = "none")
+
+dfScoreChg <- dfScore
+colnames(dfScoreChg) <- c("lambda", "scoreChg")
+dfScoreChg$scoreChg <- c(1, 1 - dfScoreChg$scoreChg[2:nrow(dfScoreChg)] / 
+                           abs(dfScoreChg$scoreChg[1:(nrow(dfScoreChg) - 1)]))
+
+ggplot(data = dfScoreChg, aes(x = lambda, y = scoreChg)) + 
+  geom_line() +
+  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
+                     breaks = lambdaVec[seq(from = 1, 
+                                            to = length(lambdaVec), by = 2)]) +
+  theme(legend.position = "none")
+
+lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01)[1]]
+
+ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
+  geom_line() +
+  geom_hline(mapping = aes(col = varID, yintercept = trueVal), 
+             data = dfThetaTrue,
+             size = 0.5, lty = "dashed") + 
+  geom_vline(xintercept = lambdaStop, size = 1.0, lty = "dotted", 
+             color = "brown") + 
+  geom_hline(yintercept = 0, size = 0.5) + 
+  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01),
+                     breaks = unique(dfThetaTrue$trueVal)) +
+  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
+                     breaks = lambdaVec[seq(from = 1, 
+                                            to = length(lambdaVec), by = 2)]) +
+  scale_color_manual(breaks = unique(dfThetaTrue$varID),
+                     values = c(rainbow(5), rep("grey", d - 5))) +
+  theme(legend.position = "none")
+```
+
+Note that the dark red dotted line marks the `lambda` where the improvement is less than $1\%$. I think it may be reasonable to say that we choose the result at the previous `lambda` before the dark red dotted line.
+
+
+
