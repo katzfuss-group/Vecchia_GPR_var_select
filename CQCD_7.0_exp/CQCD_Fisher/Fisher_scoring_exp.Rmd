@@ -56,7 +56,7 @@ Set initial values and lower bounds.
 ```{r init val and lower bounds}
 sigmasqInit <- 0.25
 tausqInit <- 0.01
-rsqInit <- 1
+rsqInit <- 0.01
 theta <- c(sigmasqInit, rep(rsqInit, d), tausqInit)
 thetaTrans <- invlink(theta)
 ```
@@ -86,7 +86,7 @@ ddpenfun <- function(theta){
 
 Optimization with Fisher scoring.
 ```{r optimization with Fisher scoring}
-maxIter <- 8
+maxIter <- 16
 rslt <- list()
 for(crtIter in c(1 : maxIter))
 {
@@ -152,7 +152,7 @@ ggplot(data = dfTheta, aes(x = iter, y = relevance, col = varID)) +
              data = dfThetaTrue,
              size = 0.5, lty = "dashed") + 
   geom_hline(yintercept = 0, size = 0.5) + 
-  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.1),
+  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.025),
                      breaks = unique(c(sqrt(rsqInit), sqrt(rsq)))) +
   scale_color_manual(breaks = unique(dfThetaTrue$varID),
                      values = c(rainbow(5), rep("grey", d - 5))) +
