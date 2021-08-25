@@ -191,14 +191,19 @@ for(i in 2 : (d + 1)){
   df <- as.data.frame(df)
   df$mtdID <- paste("Method", df$mtdID)
   df <- df[complete.cases(df), ]
-  plt <- ggplot(data = df, aes(x = batchsz, y = bias, col = mtdID, 
-                               lty = mtdID)) +
-    geom_line() +
+  plt <- ggplot(data = df) +
+    geom_line(aes(x = batchsz, y = bias, col = mtdID), lwd = 1.5) +
+    geom_line(aes(x = batchsz, y = RMSE, col = mtdID), lty = "dashed", 
+              lwd = 1.5) +
     scale_x_continuous(trans = pseudo_log_trans(sigma = 1),
                        breaks = batchSzVec) +
     scale_color_manual(breaks = unique(df$mtdID),
                        values = rainbow(4)) +
-    theme(legend.position = "none")
+    xlab("batch size") +
+    theme(legend.position = "none",
+          axis.title.y = element_blank(),
+          axis.text=element_text(size = 12),
+          axis.title=element_text(size = 12))
   if(i != 1 && i != d + 2 && i != d + 3 && i != 2*d + 4)
     plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.005))
   if(i <= d + 2){
@@ -206,25 +211,6 @@ for(i in 2 : (d + 1)){
            width = 7, height = 5)
   }else{
     ggsave(paste0("grad_bias_exact_", varName, ".pdf"), plot = plt,
-           width = 7, height = 5)
-  }
-  
-
-  plt <- ggplot(data = df, aes(x = batchsz, y = RMSE, col = mtdID, 
-                               lty = mtdID)) +
-    geom_line() +
-    scale_x_continuous(trans = pseudo_log_trans(sigma = 1),
-                       breaks = batchSzVec) +
-    scale_color_manual(breaks = unique(df$mtdID),
-                       values = rainbow(4)) + 
-    theme(legend.position = "none")
-  if(i != 1 && i != d + 2 && i != d + 3 && i != 2*d + 4)
-    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01))
-  if(i <= d + 2){
-    ggsave(paste0("grad_RMSE_", varName, ".pdf"), plot = plt,
-           width = 7, height = 5)
-  }else{
-    ggsave(paste0("grad_RMSE_exact_", varName, ".pdf"), plot = plt,
            width = 7, height = 5)
   }
 }
