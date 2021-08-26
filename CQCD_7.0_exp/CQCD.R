@@ -122,10 +122,16 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
   batchIdx <- sample(x = 1 : n, size = batchSz, replace = F)
   likobj <- likfun_GDFIM(parms, batchIdx)
   
+  s <- 0
+  scaler <- 1
+  iterCounter <- 0
+  parmsM1 <- NA
+  parmsM2 <- NA
+  
   for(i in 1 : maxIterOut)
   {
     obj <- - likobj$loglik
-    grad <- - likobj$grad / i
+    grad <- - likobj$grad * scaler
     H <- likobj$info
     if(!silent)
     {
@@ -159,8 +165,20 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
       break
     # Gradients, FIM at the new parms
     batchIdx <- sample(x = 1 : n, size = batchSz, replace = F)
+    parmsM2 <- parmsM1
+    parmsM1 <- parms
     parms <- parmsNew
+    iterCounter <- iterCounter + 1
     likobj <- likfun_GDFIM(parms, batchIdx)
+    if(i > 1)
+      s <- s + sum((parms - parmsM1) * (parmsM1 - parmsM2))
+    if(s < 0 && iterCounter > 2){
+      s <- 0
+      scaler <- scaler / 2
+      iterCounter <- 0
+      if(!silent)
+        cat("scaler is halved\n")
+    }
   }
   if(!silent)
   {
