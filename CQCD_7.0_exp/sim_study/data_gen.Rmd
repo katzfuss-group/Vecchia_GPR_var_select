@@ -29,20 +29,12 @@ RFoptions(spConform=FALSE)
 set.seed(123)
 var <- 1
 tausq <- 0.05^2
-r0 <- c(2, 1, 0.5)
-loc1 <- seq(from = 0, to = 1, length.out = 100)
-loc1 <- loc1 * sqrt(100) / sqrt(sum(loc1^2))
-loc2 <- seq(from = 0, to = 1, length.out = 100)
-loc2 <- loc2 * sqrt(100) / sqrt(sum(loc2^2))
-loc3 <- seq(from = 0, to = 1, length.out = 10)
-loc3 <- loc3 * sqrt(10) / sqrt(sum(loc3^2))
-scale <- 1 / max(loc1, loc2, loc3)
+r0 <- c(1, 0.5)
+loc1 <- (1 : 320) * r0[1]
+loc2 <- (1 : 320) * r0[2]
+scale <- 32
 model <- RMwhittle(var = var, scale = scale, nu = 2.5)
-y <- RFsimulate(model, 
-                x = loc1 * r0[1] * scale, 
-                y = loc2 * r0[2] * scale,
-                z = loc3 * r0[3] * scale,
-                grid = T)
+y <- RFsimulate(model, x = loc1, y = loc2, grid = T)
 ```
 
 Define `d`.
@@ -53,21 +45,20 @@ d <- 1e3
 Build the independent predictors and `y`.
 ```{r indep predictors}
 n <- length(y)
-locsT <- matrix(NA, n, 3)
+locsT <- matrix(NA, n, 2)
 yTmp <- rep(NA, n)
-for(i1 in 1 : 100)
-  for(i2 in 1 : 100)
-  {
-    idx <- ((i1 - 1) * 1000 + (i2 - 1) * 10 + 1) : 
-      ((i1 - 1) * 1000 + (i2 - 1) * 10 + 10) 
-    locsT[idx, ] <- cbind(rep(loc1[i1], length(loc3)), 
-                          rep(loc2[i2], length(loc3)), 
-                          loc3)
-    yTmp[idx] <- y[i1, i2, ]
-  }
+for(i1 in 1 : length(loc1))
+{
+  idx <- ((i1 - 1) * length(loc2) + 1) : 
+    ((i1 - 1) * length(loc2) + length(loc2)) 
+  locsT[idx, ] <- cbind(loc1[i1] / r0[1] / scale, 
+                        loc2 / r0[2] / scale)
+  yTmp[idx] <- y[i1, ]
+}
 y <- yTmp
-locsF <- randomLHS(n, d - 3)
-locsF <- locsF * outer(rep(sqrt(n), n), 
+colNorm <- sqrt(sum(locsT[, 1]^2))
+locsF <- randomLHS(n, d - 2)
+locsF <- locsF * outer(rep(colNorm, n), 
                      1 / sqrt(colSums(locsF^2)))
 locs <- cbind(locsT, locsF)
 cat("Independent predictors generated \n")

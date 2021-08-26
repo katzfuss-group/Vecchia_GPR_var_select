@@ -114,7 +114,7 @@ forward_backward <- function(theta0, idx0, gradObj0)
     locsRelScalOdr <- locsRelScal[odr, , drop = F]
     locsOdr <- locs[odr, , drop = F]
     timeNN <- system.time(NNarray <- 
-                            GpGp::find_ordered_nn(locsRelScalOdr, m = m))
+                            GpGp::find_ordered_nn(locsRelScalOdr, m = m))[[3]]
     cat("NNarray used:", timeNN, "\n")
     # extract relevant col in locsOdr and lb
     locsOdrRel <- locsOdr[, idxNew - 1, drop = F] 
@@ -140,7 +140,7 @@ forward_backward <- function(theta0, idx0, gradObj0)
     timeCQCD <- system.time(
       optObj <- CQCD_stochastic(objfun, objfun_gdfm, n, 1e3, thetaRel, 
                                 maxIterOut = 50, maxIterIn = 40, lb = lbRel,
-                                arg_check = arg_check_SR))
+                                arg_check = arg_check_SR))[[3]]
     cat("CQCD neval:", optObj$neval, "\n")
     cat("CQCD used:", timeCQCD, "\n")
     # Take out zero relevance
@@ -162,7 +162,8 @@ forward_backward <- function(theta0, idx0, gradObj0)
       GpGp::vecchia_meanzero_loglik_grad_info(theta, 
                                               "matern25_scaledim_sqrelevance",
                                               yOdr, locsOdr, 
-                                              NNarray[batchIdx, , drop = F]))
+                                              NNarray[batchIdx, , 
+                                                      drop = F]))[[3]]
     cat("Grad used:", timeGrad, "\n")
     # break condition
     if((length(idxLocZero) > 0 && any(idxSel %in% idxDesel)) || 
@@ -174,7 +175,7 @@ forward_backward <- function(theta0, idx0, gradObj0)
 }
 ```
 
-Storage variabels for plotting later.
+Storage variables for plotting later.
 ```{r lambda grid}
 # define result collecting vars
 idxSet <- list()
@@ -194,14 +195,15 @@ arg_check_SR <- function(x) {sum(sqrt(x[-c(1, length(x))])) > 1e-4}
 idx <- c()
 yOdr <- y
 locsOdr <- locs
-timeNN <- system.time(NNarray <- find_ordered_nn(locs, m = m))
+timeNN <- system.time(NNarray <- find_ordered_nn(locs[, sample(1 : d, k)], 
+                                                 m = m))[[3]]
 cat("First NNarray used:", timeNN, "\n")
 batchIdx <- sample(x = 1 : n, size = 5e3, replace = F)
 timeGrad <- system.time(gradObj <- 
   GpGp::vecchia_meanzero_loglik_grad_info(theta, 
                                           "matern25_scaledim_sqrelevance",
                                           yOdr, locsOdr, 
-                                          NNarray[batchIdx, , drop = F]))
+                                          NNarray[batchIdx, , drop = F]))[[3]]
 cat("First grad used:", timeGrad, "\n")
 lb[which.max(gradObj$grad[2 : (d + 1)]) + 1] <- 2e-4
 ```
