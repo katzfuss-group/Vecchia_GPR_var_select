@@ -303,107 +303,6 @@ dfThetaTrue <- data.frame("varID" = paste0("var", 1 : d),
                                              rep(0, d - 5))))
 ```
 
-Loglik score.
-```{r plot loglik score, eval = T}
-dfScore <- matrix(NA, length(idxSet), 2)
-colnames(dfScore) <- c("lambda", "score")
-for(i in 1 : length(idxSet))
-{
-  dfScore[i, 1] <- lambdaSet[[i]]
-  dfScore[i, 2] <- scoreSetLoglik[[i]]
-}
-dfScore <- as.data.frame(dfScore)
-
-ggplot(data = dfScore, aes(x = lambda, y = score)) + 
-  geom_line() +
-  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
-                     breaks = lambdaVec[seq(from = 1, 
-                                            to = length(lambdaVec), by = 2)]) +
-  theme(legend.position = "none")
-
-dfScoreChg <- dfScore
-colnames(dfScoreChg) <- c("lambda", "scoreChg")
-dfScoreChg$scoreChg <- c(1, 1 - dfScoreChg$scoreChg[2:nrow(dfScoreChg)] / 
-                           abs(dfScoreChg$scoreChg[1:(nrow(dfScoreChg) - 1)]))
-
-ggplot(data = dfScoreChg, aes(x = lambda, y = scoreChg)) + 
-  geom_line() +
-  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
-                     breaks = lambdaVec[seq(from = 1, 
-                                            to = length(lambdaVec), by = 2)]) +
-  theme(legend.position = "none")
-
-lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01)[1]]
-
-ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
-  geom_line() +
-  geom_hline(mapping = aes(col = varID, yintercept = trueVal), 
-             data = dfThetaTrue,
-             size = 0.5, lty = "dashed") + 
-  geom_vline(xintercept = lambdaStop, size = 1.0, lty = "dotted", 
-             color = "brown") + 
-  geom_hline(yintercept = 0, size = 0.5) + 
-  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01),
-                     breaks = unique(dfThetaTrue$trueVal)) +
-  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
-                     breaks = lambdaVec[seq(from = 1, 
-                                            to = length(lambdaVec), by = 2)]) +
-  scale_color_manual(breaks = unique(dfThetaTrue$varID),
-                     values = c(rainbow(5), rep("grey", d - 5))) +
-  theme(legend.position = "none")
-```
-
-RMSE score.
-```{r plot RMSE score, eval = T}
-dfScore <- matrix(NA, length(idxSet), 2)
-colnames(dfScore) <- c("lambda", "score")
-for(i in 1 : length(idxSet))
-{
-  dfScore[i, 1] <- lambdaSet[[i]]
-  dfScore[i, 2] <- scoreSetRMSE[[i]]
-}
-dfScore <- as.data.frame(dfScore)
-
-ggplot(data = dfScore, aes(x = lambda, y = score)) + 
-  geom_line() +
-  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
-                     breaks = lambdaVec[seq(from = 1, 
-                                            to = length(lambdaVec), by = 2)]) +
-  theme(legend.position = "none")
-
-dfScoreChg <- dfScore
-colnames(dfScoreChg) <- c("lambda", "scoreChg")
-dfScoreChg$scoreChg <- c(1, 1 - dfScoreChg$scoreChg[2:nrow(dfScoreChg)] / 
-                           abs(dfScoreChg$scoreChg[1:(nrow(dfScoreChg) - 1)]))
-
-ggplot(data = dfScoreChg, aes(x = lambda, y = scoreChg)) + 
-  geom_line() +
-  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
-                     breaks = lambdaVec[seq(from = 1, 
-                                            to = length(lambdaVec), by = 2)]) +
-  theme(legend.position = "none")
-
-lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01)[1]]
-
-ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
-  geom_line() +
-  geom_hline(mapping = aes(col = varID, yintercept = trueVal), 
-             data = dfThetaTrue,
-             size = 0.5, lty = "dashed") + 
-  geom_vline(xintercept = lambdaStop, size = 1.0, lty = "dotted", 
-             color = "brown") + 
-  geom_hline(yintercept = 0, size = 0.5) + 
-  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01),
-                     breaks = unique(dfThetaTrue$trueVal)) +
-  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
-                     breaks = lambdaVec[seq(from = 1, 
-                                            to = length(lambdaVec), by = 2)]) +
-  scale_color_manual(breaks = unique(dfThetaTrue$varID),
-                     values = c(rainbow(5), rep("grey", d - 5))) +
-  theme(legend.position = "none")
-ggsave(paste0("CQCD_bridge_", n, "_", d, ".pdf"), width = 7, height = 5)
-```
-
 CRPS score.
 ```{r plot CRPS score, eval = T}
 dfScore <- matrix(NA, length(idxSet), 2)
@@ -434,7 +333,10 @@ ggplot(data = dfScoreChg, aes(x = lambda, y = scoreChg)) +
                                             to = length(lambdaVec), by = 2)]) +
   theme(legend.position = "none")
 
-lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01)[1]]
+nSelected <- sapply(1 : length(idxSet), function(x){if(x == 1) 
+  length(idxSet[[1]]) else length(setdiff(idxSet[[x]], idxSet[[x - 1]]))})
+lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01 &
+                                nSelected > 0)[1] - 1]
 
 ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
   geom_line() +
@@ -452,9 +354,10 @@ ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
   scale_color_manual(breaks = unique(dfThetaTrue$varID),
                      values = c(rainbow(5), rep("grey", d - 5))) +
   theme(legend.position = "none")
+ggsave(paste0("CQCD_bridge_", n, "_", d, ".pdf"), width = 7, height = 5)
 ```
 
-Note that the dark red dotted line marks the `lambda` where the improvement is less than $1\%$. I think it may be reasonable to say that we choose the result at the previous `lambda` before the dark red dotted line.
+
 
 
 

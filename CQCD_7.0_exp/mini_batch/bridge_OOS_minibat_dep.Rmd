@@ -43,7 +43,7 @@ tausq <- 0.05^2 # nugget
 rho <- 0.9
 covM <- matrix(rho, d, d)
 diag(covM) <- 1
-locs <- rmvnorm(n + nOOS, sigma = covM)
+locs <- rmvnorm(n + nOOS, sigma = covM) 
 locs <- locs * outer(rep(sqrt(n + nOOS), n + nOOS), 
                      1 / sqrt(colSums(locs^2)))
 covM <- matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
@@ -85,7 +85,7 @@ OOS_score <- function(theta)
 
 ```{r batch size, eval = T}
 batchSzCQCD <- 1e3
-batchSzGrad <- 5e3
+batchSzGrad <- 2e3
 ```
 
 Bridge penalty with `gamma = 1/4`.
@@ -328,6 +328,8 @@ ggplot(data = dfScore, aes(x = lambda, y = score)) +
                      breaks = lambdaVec[seq(from = 1, 
                                             to = length(lambdaVec), by = 2)]) +
   theme(legend.position = "none")
+ggsave(paste0("CQCD_bridge_minibat_dep_scr_", n, "_", d, ".pdf"), 
+       width = 7, height = 5)
 
 dfScoreChg <- dfScore
 colnames(dfScoreChg) <- c("lambda", "scoreChg")
@@ -341,7 +343,13 @@ ggplot(data = dfScoreChg, aes(x = lambda, y = scoreChg)) +
                                             to = length(lambdaVec), by = 2)]) +
   theme(legend.position = "none")
 
-lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01)[1] + firstIdx - 1]
+nSelected <- sapply(firstIdx : length(idxSet), function(x){if(x == firstIdx) 
+  length(idxSet[[1]]) else length(setdiff(idxSet[[x]], idxSet[[x - 1]]))})
+lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01 &
+                                nSelected > 0)[1] + firstIdx - 2]
+
+ggsave(paste0("CQCD_bridge_minibat_dep_scrChg_", n, "_", d, ".pdf"), 
+       width = 7, height = 5)
 
 ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
   geom_line() +
@@ -359,9 +367,9 @@ ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
   scale_color_manual(breaks = unique(dfThetaTrue$varID),
                      values = c(rainbow(5), rep("grey", d - 5))) +
   theme(legend.position = "none")
+ggsave(paste0("CQCD_bridge_minibat_dep_", n, "_", d, ".pdf"), 
+       width = 7, height = 5)
 ```
-
-
 
 
 

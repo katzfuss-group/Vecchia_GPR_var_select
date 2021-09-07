@@ -204,8 +204,10 @@ for(i in 2 : (d + 1)){
           axis.title.y = element_blank(),
           axis.text=element_text(size = 12),
           axis.title=element_text(size = 12))
-  if(i != 1 && i != d + 2 && i != d + 3 && i != 2*d + 4)
-    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.005))
+  if(i == 2)
+    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.002))
+  if(i == d + 1)
+    plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01))
   if(i <= d + 2){
     ggsave(paste0("grad_bias_", varName, ".pdf"), plot = plt,
            width = 7, height = 5)

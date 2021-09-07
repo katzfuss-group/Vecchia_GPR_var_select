@@ -64,7 +64,7 @@ if(file.exists("CQCD.R")){
 }
 ```
 
-Lasso penalty.
+Bridge penalty.
 ```{r logistic penalty, eval = T}
 lambda <- 32
 gamma <- 1/4

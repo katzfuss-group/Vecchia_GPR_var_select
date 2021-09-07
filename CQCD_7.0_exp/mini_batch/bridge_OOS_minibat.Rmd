@@ -82,7 +82,7 @@ OOS_score <- function(theta)
 
 ```{r batch size, eval = T}
 batchSzCQCD <- 1e3
-batchSzGrad <- 5e3
+batchSzGrad <- 2e3
 ```
 
 Bridge penalty with `gamma = 1/4`.
@@ -325,6 +325,8 @@ ggplot(data = dfScore, aes(x = lambda, y = score)) +
                      breaks = lambdaVec[seq(from = 1, 
                                             to = length(lambdaVec), by = 2)]) +
   theme(legend.position = "none")
+ggsave(paste0("CQCD_bridge_minibat_scr_", n, "_", d, ".pdf"), 
+       width = 7, height = 5)
 
 dfScoreChg <- dfScore
 colnames(dfScoreChg) <- c("lambda", "scoreChg")
@@ -337,8 +339,13 @@ ggplot(data = dfScoreChg, aes(x = lambda, y = scoreChg)) +
                      breaks = lambdaVec[seq(from = 1, 
                                             to = length(lambdaVec), by = 2)]) +
   theme(legend.position = "none")
+ggsave(paste0("CQCD_bridge_minibat_scrChg_", n, "_", d, ".pdf"), 
+       width = 7, height = 5)
 
-lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01)[1] + firstIdx - 1]
+nSelected <- sapply(firstIdx : length(idxSet), function(x){if(x == firstIdx) 
+  length(idxSet[[1]]) else length(setdiff(idxSet[[x]], idxSet[[x - 1]]))})
+lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01 &
+                                nSelected > 0)[1] + firstIdx - 2]
 
 ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
   geom_line() +
@@ -356,6 +363,8 @@ ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
   scale_color_manual(breaks = unique(dfThetaTrue$varID),
                      values = c(rainbow(5), rep("grey", d - 5))) +
   theme(legend.position = "none")
+ggsave(paste0("CQCD_bridge_minibat_", n, "_", d, ".pdf"), 
+       width = 7, height = 5)
 ```
 
 
