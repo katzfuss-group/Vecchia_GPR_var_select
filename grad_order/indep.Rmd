@@ -1,0 +1,77 @@
+---
+title: "Bridge GP Regression"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Method 
+Use OOS score and bridge penalty and stop if any newly added predictor is deselected in the same iteration.
+
+## Experiment
+Clean the environment
+```{r clean environment}
+rm(list = ls())
+```
+Need to install a modified version of the GpGp R package.
+```{r install the moderated GpGp Pkg}
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+library(lhs)
+library(FNN)
+set.seed(123)
+```
+Simulate GP.
+```{r simulate GP, eval = T}
+n <- 5e3
+d <- 1e2
+m <- 100
+rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+locs <- randomLHS(n, d)
+locs <- locs * outer(rep(sqrt(n), n), 
+                     1 / sqrt(colSums(locs^2)))
+covM <- matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+rm(covM, cholM)
+```
+
+Compute the gradient.
+```{r initialization, eval = T}
+theta <- c(sigmasq, rep(1e-8, d), tausq)
+NNarray <- find_ordered_nn(locs, m = m)
+gradObj <- vecchia_meanzero_loglik_grad_info(theta, 
+                                            "matern25_scaledim_sqrelevance",
+                                            y, locs, NNarray)
+```
+
+Plot the derivatives.
+```{r plot gradient, eval = F}
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(reshape)
+
+dfGrad <- matrix(NA, d, 3)
+dfGrad[, 1] <- 1 : d
+dfGrad[, 2] <- gradObj$grad[2 : (d + 1)]
+dfGrad[, 3] <- 1 : d
+dfGrad[, 3][dfGrad[, 3] > 5] <- 6
+colnames(dfGrad) <- c("ID", "grad", "col")
+dfGrad <- as.data.frame(dfGrad)
+dfGrad$col <- as.factor(dfGrad$col)
+
+ggplot(data = dfGrad, aes(x = ID, y = grad, col = col)) +
+  geom_point() +
+  scale_color_manual(breaks = unique(dfGrad$col),
+                     values = c(rainbow(5), rep("grey", d - 5))) +
+  scale_y_continuous(trans = pseudo_log_trans(sigma = dfGrad$grad[5])) +
+  theme(legend.position = "none")
+ggsave(paste0("gradient_magnitude.pdf"), width = 7, height = 5)
+```
+
+
