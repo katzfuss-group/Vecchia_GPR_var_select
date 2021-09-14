@@ -82,7 +82,7 @@ OOS_score <- function(theta)
 
 ```{r batch size, eval = T}
 batchSzCQCD <- 1e3
-batchSzGrad <- 2e3
+batchSzGrad <- 2e2
 ```
 
 Bridge penalty with `gamma = 1/4`.
@@ -108,6 +108,11 @@ forward_backward <- function(theta0, idx0, gradObj0)
   theta <- theta0
   idx <- idx0
   gradObj <- gradObj0
+  niterFB <- 0
+  niterCQCD <- 0
+  timeTtCQCD <- 0
+  timeTtGrad <- 0
+  timeTtNN <- 0
   while(T)
   {
     odrDec <- order(gradObj$grad[2 : (d + 1)], decreasing = T)
@@ -129,7 +134,9 @@ forward_backward <- function(theta0, idx0, gradObj0)
     yOdr <- y[odr]
     locsRelScalOdr <- locsRelScal[odr, , drop = F]
     locsOdr <- locs[odr, , drop = F]
-    NNarray <- GpGp::find_ordered_nn(locsRelScalOdr, m = m)
+    timeObj <- system.time(
+      NNarray <- GpGp::find_ordered_nn(locsRelScalOdr, m = m))
+    timeTtNN <- timeTtNN + timeObj[[3]]
     # extract relevant col in locsOdr and lb
     locsOdrRel <- locsOdr[, idxNew - 1, drop = F] 
     lbRel <- lb[c(1, idxNew, 2 + d)] 
@@ -151,9 +158,12 @@ forward_backward <- function(theta0, idx0, gradObj0)
       likObj$info <- likObj$info + ddpenfun(theta)
       likObj
     }
-    optObj <- CQCD_stochastic(objfun, objfun_gdfm, n, batchSzCQCD, thetaRel, 
-                              maxIterOut = 100, maxIterIn = 40, lb = lbRel,
-                              arg_check = arg_check_SR)
+    timeObj <- system.time(
+      optObj <- CQCD_stochastic(objfun, objfun_gdfm, n, batchSzCQCD, thetaRel, 
+                                maxIterOut = 100, maxIterIn = 40, lb = lbRel,
+                                arg_check = arg_check_SR))
+    niterCQCD <- niterCQCD + optObj$neval
+    timeTtCQCD <- timeTtCQCD + timeObj[[3]]
     # Take out zero relevance
     thetaRel <- optObj$covparms
     idxLocZero <- which(thetaRel[2 : (1 + length(idxNew))] == 0)
@@ -169,16 +179,24 @@ forward_backward <- function(theta0, idx0, gradObj0)
     idx <- idxNew
     # compute grad with thetaNew
     batchIdx <- sample(x = 1 : n, size = batchSzGrad, replace = F)
-    gradObj <- 
-      GpGp::vecchia_meanzero_loglik_grad_info(theta, 
-                                              "matern25_scaledim_sqrelevance",
-                                              yOdr, locsOdr, 
-                                              NNarray[batchIdx, , drop = F])
+    timeObj <- system.time(
+      gradObj <- 
+        GpGp::vecchia_meanzero_loglik_grad_info(theta, 
+                                                "matern25_scaledim_sqrelevance",
+                                                yOdr, locsOdr, 
+                                                NNarray[batchIdx, , drop = F]))
+    niterFB <- niterFB + 1
+    timeTtGrad <- timeTtGrad + timeObj[[3]]
     # break condition
-    if((length(idxLocZero) > 0 && any(idxSel %in% idxDesel)) || 
+    if((length(idxLocZero) > 0 && all(idxSel %in% idxDesel)) || 
        length(idx) > 20)
       break
   }
+  cat("#Iter of forward-backward selection is", niterFB, "\n")
+  cat("#Iter of CQCD is", niterCQCD, "\n")
+  cat("Time of computing the full gradients is", timeTtGrad, "\n")
+  cat("Time of running CQCD is", timeTtCQCD, "\n")
+  cat("Time of finding NN is", timeTtNN, "\n")
   cat("lambda =", lambda, "idx =", idx, "\n\n")
   return(list(lambda = lambda, theta = theta, idx = idx, gradObj = gradObj))
 }
