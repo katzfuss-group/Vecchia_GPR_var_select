@@ -1,0 +1,287 @@
+---
+title: "Penalized GP Regression (Yi 2011)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Method 
+Bridge penalty solution path, conjugate gradient, no warm start, ten random starting points at each `lambda`.
+
+## Preparation
+Clean the environment
+```{r clean environment}
+rm(list = ls())
+```
+Need to install a modified version of the GpGp R package.
+```{r install the moderated GpGp Pkg}
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+library(FNN)
+library(scoringRules)
+library(mvtnorm)
+library(parallel)
+if(file.exists("CQCD.R")){
+  source("CQCD.R")
+}else{
+  source("../CQCD.R")
+}
+if(file.exists("data_35000.RData")){
+  load("data_35000.RData")
+}else{
+  load("../../sim_study_data_gen/data_35000.RData")
+}
+set.seed(123)
+```
+Divide observations.
+```{r divide GP obs, eval = T}
+m <- 100
+k <- 3
+nOOS <- 5e3
+nTest <- 5e3
+nTrain <- 5e2
+dTrain <- 1e2
+locsTrain <- locs[1 : nTrain, 1 : dTrain, drop = F]
+locsOOS <- locs[(nTrain + 1) : (nTrain + nOOS), 1 : dTrain, drop = F]
+locsTest <- locs[(nTrain + nOOS + 1) : (nTrain + nOOS + nTest), 1 : dTrain, 
+                 drop = F]
+yTrain <- y[1 : nTrain]
+yOOS <- y[(nTrain + 1) : (nTrain + nOOS)]
+yTest <- y[(nTrain + nOOS + 1) : (nTrain + nOOS + nTest)]
+```
+Function for computing the approximate OOS score, assuming the squared relevance parameterized Matern25 kernel.
+```{r OOS score, eval = T}
+OOS_score <- function(theta)
+{
+  idxLocsRel <- which(theta[2 : (dTrain + 1)] > 0)
+  dRel <- length(idxLocsRel)
+  locsRel <- rbind(locsTrain, locsOOS)[, idxLocsRel, drop = F]
+  thetaRel <- theta[c(1, idxLocsRel + 1, dTrain + 2)]
+  locsRelScal <- locsRel %*% 
+    diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
+  yTtl <- c(yTrain, yOOS)
+  NNarray <- get.knnx(locsRelScal[1 : nTrain, , drop = F],
+                      locsRelScal[(nTrain + 1) : (nTrain + nOOS), , drop = F], 
+                      m)$nn.index
+  NNarray <- cbind(NNarray, (nTrain + 1) : (nTrain + nOOS))
+  mus <- rep(NA, nOOS)
+  sds <- rep(NA, nOOS)
+  for(i in 1 : nOOS){
+    NN <- NNarray[i, ]
+    K <- matern25_scaledim_sqrelevance(thetaRel, locsRel[NN, , drop = F])
+    L <- t(chol(K))
+    mus[i] <- L[m + 1, 1 : m] %*% 
+      forwardsolve(L[1 : m, 1 : m], yTrain[NN[1 : m]])
+    sds[i] <- L[m+1, m+1]
+  }
+  mean(crps_norm(y = yOOS, mean = mus, sd = sds))
+}
+```
+
+Function for computing the test score, assuming the squared relevance parameterized Matern25 kernel.
+```{r test score, eval = T}
+test_score <- function(theta)
+{
+  idxLocsRel <- which(theta[2 : (dTrain + 1)] > 0)
+  dRel <- length(idxLocsRel)
+  locsRel <- rbind(locsTrain, locsTest)[, idxLocsRel, drop = F]
+  thetaRel <- theta[c(1, idxLocsRel + 1, dTrain + 2)]
+  locsRelScal <- locsRel %*% 
+    diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
+  yTtl <- c(yTrain, yTest)
+  NNarray <- get.knnx(locsRelScal[1 : nTrain, , drop = F],
+                      locsRelScal[(nTrain + 1) : (nTrain + nTest), , drop = F], 
+                      m)$nn.index
+  NNarray <- cbind(NNarray, (nTrain + 1) : (nTrain + nTest))
+  mus <- rep(NA, nTest)
+  sds <- rep(NA, nTest)
+  for(i in 1 : nTest){
+    NN <- NNarray[i, ]
+    K <- matern25_scaledim_sqrelevance(thetaRel, locsRel[NN, , drop = F])
+    L <- t(chol(K))
+    mus[i] <- L[m + 1, 1 : m] %*% 
+      forwardsolve(L[1 : m, 1 : m], yTrain[NN[1 : m]])
+    sds[i] <- L[m+1, m+1]
+  }
+  mean(crps_norm(y = yTest, mean = mus, sd = sds))
+}
+```
+
+## Method specific
+
+Non-linear conjugate gradient method for MINIMIZATION
+```{r non-linear CG, eval = T}
+CG_nonlin <- function(obj_func, grad_func, theta0, convtolOut = 1e-4, 
+                 convtolIn = 1e-4, maxIter = 40, 
+                 arg_check = function(){T}, silent = FALSE)
+{
+  theta <- theta0
+  for(i in 1 : maxIter)
+  {
+    if(i == 1)
+      d <- g <- gM1 <- - grad_func(theta)
+    else{
+      g <- - grad_func(theta)
+      beta <- sum(g^2) / sum(gM1^2)
+      d <- g + beta * d
+      gM1 <- g
+    }
+    alpha <- min_line_search(obj_func, theta, d, convtolIn, arg_check)
+    thetaM1 <- theta
+    theta <- thetaM1 + alpha * d
+    
+    if(!silent)
+      cat("Iteration", i, "parms =", theta, "\n")
+    
+    if(abs(sum((theta - thetaM1) * g)) < convtolOut)
+      break
+  }
+  list(covparms = theta, neval = i, obj = obj_func(theta))
+}
+min_line_search <- function(obj_func, theta0, d, convtol, arg_check, 
+                            silent = FALSE)
+{
+  alphaMax <- 2^16
+  alphaMin <- 0
+  nInterval <- 16
+  while(sum(abs((alphaMax - alphaMin) * d)) > convtol)
+  {
+    alphaVec <- seq(from = alphaMin, to = alphaMax, 
+                    by = (alphaMax - alphaMin) / nInterval)
+    if(length(alphaVec) != nInterval + 1)
+      stop("Unexpected situation in min_line_search\n")
+    objVec <- unlist(mclapply(alphaVec, function(x){
+      if(arg_check(theta0 + x * d))
+        obj_func(theta0 + x * d)
+      else
+        Inf
+      }, mc.cores = 56))
+    alpha <- alphaVec[which.min(objVec)]
+    interval <- (alphaMax - alphaMin) / nInterval
+    alphaMin <- max(alpha - interval, 0)
+    alphaMax <- alpha + interval
+  }
+  alpha
+}
+```
+
+Link and response transforms
+```{r link and response, eval = T}
+link_func <- log
+resp_func <- exp
+dresp_func <- exp
+```
+
+Bridge penalty with `gamma = 1/4`
+```{r penalty, eval = T}
+gamma <- 1/4
+penfun <- function(theta){
+  lambda * sum(resp_func(theta[-c(1, length(theta))])^(gamma))
+}
+dpenfun <- function(theta){
+  r <- resp_func(theta[-c(1, length(theta))])
+  rpen <- lambda * r^(gamma - 1) * gamma * 
+    dresp_func(theta[-c(1, length(theta))])
+  rpen[r < 1e-10] <- lambda * (1e-10)^(gamma - 1) * gamma * 1e-10
+  c(0, rpen, 0)
+}
+ddpenfun <- function(theta){
+  diag(rep(0, length(theta)))
+}
+```
+
+Objective function and its gradient
+```{r obj and grad funcs, eval = T}
+obj_func <- function(theta)
+{
+  covM <- matern25_scaledim_sqrelevance(resp_func(theta), locsTrain)
+  - dmvnorm(yTrain, sigma = covM, log = T) + penfun(theta)
+}
+grad_func <- function(theta)
+{
+  covM <- matern25_scaledim_sqrelevance(resp_func(theta), locsTrain)
+  dcovM <- d_matern25_scaledim_sqrelevance(resp_func(theta), locsTrain)
+  covMInv <- solve(covM)
+  covMInvy <- covMInv %*% yTrain
+  idx <- 1 : length(theta)
+  grad <- unlist(mclapply(idx, function(x){(sum(covMInv * dcovM[, , x]) - 
+      sum(t(covMInvy) %*% dcovM[, , x] %*% covMInvy)) / 2}))
+  grad * dresp_func(theta) + dpenfun(theta)
+}
+```
+Function for model fitting given `lambda`
+```{r fit model for lambda, eval = T}
+arg_check <- function(theta){sum(resp_func(theta[2 : (dTrain + 1)])) > 1e-8}
+model_fit <- function(nStartPnt, theta_gen)
+{
+  for(i in 1 : nStartPnt)
+  {
+    cat("Starting point", i, "\n")
+    theta <- theta_gen()
+    optObj <- CG_nonlin(obj_func = obj_func, grad_func = grad_func, 
+                        theta0 = theta, convtolOut = 1e-4, convtolIn = 1e-2, 
+                        maxIter = 100, arg_check = arg_check, silent = F)
+    if(i == 1){
+      thetaFit <- optObj$covparms
+      obj <- optObj$obj
+    }else{
+      if(optObj$obj < obj){
+        thetaFit <- optObj$covparms
+        obj <- optObj$obj
+      }
+    }
+  }
+  thetaFit
+}
+```
+Lambda vector and generate init `lambda`.
+```{r lambda vec and init theta, eval = T}
+lambdaUp <- 64
+lambdaVec <- c(rev(2^(seq(from = log2(0.125/8), to = log2(max(0.125, lambdaUp)), 
+                        by = 1))))
+nStartPnt <- 1
+theta_gen <- function(){
+  # x <- runif(dTrain + 2)
+  # x[2 : (dTrain + 1)] <- x[2 : (dTrain + 1)]^2
+  x <- c(0.25, rep(0.01, dTrain), 0.01)
+  
+  link_func(x)
+}
+niter <- length(lambdaVec)
+idxSet <- list()
+thetaSet <- list()
+scoreSet <- list()
+lambdaSet <- list()
+```
+Loop over lambda.
+```{r loop over lambda, eval = T}
+startTime <- Sys.time()
+for(i in 1 : niter)
+{
+  cat("\n====================================\n")
+  lambda = lambdaVec[i]
+  cat("i =", i, "lambda =", lambda, "\n")
+  # fit model with penalty
+  thetaFit <- model_fit(nStartPnt, theta_gen)
+  # Store results
+  idxSet[[i]] <- which(resp_func(thetaFit[2 : (dTrain + 1)]) > 1e-7) + 1
+  thetaSet[[i]] <- resp_func(thetaFit) 
+  scoreSet[[i]] <- OOS_score(resp_func(thetaFit))
+  lambdaSet[[i]] <- lambda
+  if(i > 1 && scoreSet[[i]] / scoreSet[[i - 1]] > 0.99 &&
+     length(setdiff(idxSet[[i]], idxSet[[i - 1]])) > 0 && 
+     sum(thetaSet[[i]][2 : (dTrain + 1)]) > 0.1)
+    break
+}
+endTime <- Sys.time()
+timeObj <- endTime - startTime
+timeObj
+```
+
+```{r save the result, eval = T}
+save(list = c("dTrain", "idxSet", "thetaSet", "scoreSet", "lambdaSet",
+              "lambdaVec", "nTrain", "timeObj"), 
+     file = paste0("Yi2011_", nTrain, "_", dTrain, ".RData"))
+```
