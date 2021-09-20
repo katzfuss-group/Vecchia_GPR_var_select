@@ -23,6 +23,7 @@ library(FNN)
 library(scoringRules)
 library(mvtnorm)
 library(parallel)
+library(Rcgmin)
 if(file.exists("CQCD.R")){
   source("CQCD.R")
 }else{
@@ -42,7 +43,7 @@ k <- 3
 nOOS <- 5e3
 nTest <- 5e3
 nTrain <- 5e2
-dTrain <- 1e2
+dTrain <- 1e3
 locsTrain <- locs[1 : nTrain, 1 : dTrain, drop = F]
 locsOOS <- locs[(nTrain + 1) : (nTrain + nOOS), 1 : dTrain, drop = F]
 locsTest <- locs[(nTrain + nOOS + 1) : (nTrain + nOOS + nTest), 1 : dTrain, 
@@ -111,62 +112,6 @@ test_score <- function(theta)
 
 ## Method specific
 
-Non-linear conjugate gradient method for MINIMIZATION
-```{r non-linear CG, eval = T}
-CG_nonlin <- function(obj_func, grad_func, theta0, convtolOut = 1e-4, 
-                 convtolIn = 1e-4, maxIter = 40, 
-                 arg_check = function(){T}, silent = FALSE)
-{
-  theta <- theta0
-  for(i in 1 : maxIter)
-  {
-    if(i == 1)
-      d <- g <- gM1 <- - grad_func(theta)
-    else{
-      g <- - grad_func(theta)
-      beta <- sum(g^2) / sum(gM1^2)
-      d <- g + beta * d
-      gM1 <- g
-    }
-    alpha <- min_line_search(obj_func, theta, d, convtolIn, arg_check)
-    thetaM1 <- theta
-    theta <- thetaM1 + alpha * d
-    
-    if(!silent)
-      cat("Iteration", i, "parms =", theta, "\n")
-    
-    if(abs(sum((theta - thetaM1) * g)) < convtolOut)
-      break
-  }
-  list(covparms = theta, neval = i, obj = obj_func(theta))
-}
-min_line_search <- function(obj_func, theta0, d, convtol, arg_check, 
-                            silent = FALSE)
-{
-  alphaMax <- 2^16
-  alphaMin <- 0
-  nInterval <- 16
-  while(sum(abs((alphaMax - alphaMin) * d)) > convtol)
-  {
-    alphaVec <- seq(from = alphaMin, to = alphaMax, 
-                    by = (alphaMax - alphaMin) / nInterval)
-    if(length(alphaVec) != nInterval + 1)
-      stop("Unexpected situation in min_line_search\n")
-    objVec <- unlist(mclapply(alphaVec, function(x){
-      if(arg_check(theta0 + x * d))
-        obj_func(theta0 + x * d)
-      else
-        Inf
-      }, mc.cores = 56))
-    alpha <- alphaVec[which.min(objVec)]
-    interval <- (alphaMax - alphaMin) / nInterval
-    alphaMin <- max(alpha - interval, 0)
-    alphaMax <- alpha + interval
-  }
-  alpha
-}
-```
-
 Link and response transforms
 ```{r link and response, eval = T}
 link_func <- log
@@ -207,29 +152,27 @@ grad_func <- function(theta)
   covMInvy <- covMInv %*% yTrain
   idx <- 1 : length(theta)
   grad <- unlist(mclapply(idx, function(x){(sum(covMInv * dcovM[, , x]) - 
-      sum(t(covMInvy) %*% dcovM[, , x] %*% covMInvy)) / 2}))
+      sum(t(covMInvy) %*% dcovM[, , x] %*% covMInvy)) / 2}, mc.cores = 55))
   grad * dresp_func(theta) + dpenfun(theta)
 }
 ```
 Function for model fitting given `lambda`
 ```{r fit model for lambda, eval = T}
-arg_check <- function(theta){sum(resp_func(theta[2 : (dTrain + 1)])) > 1e-8}
 model_fit <- function(nStartPnt, theta_gen)
 {
   for(i in 1 : nStartPnt)
   {
     cat("Starting point", i, "\n")
     theta <- theta_gen()
-    optObj <- CG_nonlin(obj_func = obj_func, grad_func = grad_func, 
-                        theta0 = theta, convtolOut = 1e-4, convtolIn = 1e-2, 
-                        maxIter = 100, arg_check = arg_check, silent = F)
+    optObj <- Rcgmin(par = theta, fn = obj_func, gr = grad_func, 
+                     control = list(maxit = 100, trace = 1))
     if(i == 1){
-      thetaFit <- optObj$covparms
-      obj <- optObj$obj
+      thetaFit <- optObj$par
+      obj <- optObj$value
     }else{
       if(optObj$obj < obj){
-        thetaFit <- optObj$covparms
-        obj <- optObj$obj
+        thetaFit <- optObj$par
+        obj <- optObj$value
       }
     }
   }
@@ -245,7 +188,8 @@ nStartPnt <- 1
 theta_gen <- function(){
   # x <- runif(dTrain + 2)
   # x[2 : (dTrain + 1)] <- x[2 : (dTrain + 1)]^2
-  x <- c(0.25, rep(0.01, dTrain), 0.01)
+  x <- c(0.25, rep(1, dTrain), 0.01)
+  # x <- c(sigmasq, rSq[1 : dTrain] + 1e-4, tausq)
   
   link_func(x)
 }

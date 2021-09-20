@@ -40,7 +40,7 @@ k <- 3
 nOOS <- 5e3
 nTest <- 5e3
 nTrain <- 5e2
-dTrain <- 1e2
+dTrain <- 1e3
 locsTrain <- locs[1 : nTrain, 1 : dTrain, drop = F]
 locsOOS <- locs[(nTrain + 1) : (nTrain + nOOS), 1 : dTrain, drop = F]
 locsTest <- locs[(nTrain + nOOS + 1) : (nTrain + nOOS + nTest), 1 : dTrain, 

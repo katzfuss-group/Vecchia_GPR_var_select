@@ -1,5 +1,5 @@
 ---
-title: "Forward Selection"
+title: "Fisher scoring"
 output: html_document
 ---
 
@@ -8,7 +8,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Method 
-Use scaled Vecchia and Fisher scoring. OOS score is used to select the best model from the pool.
+Use scaled Vecchia and Fisher scoring. 
 
 ## Preparation
 Clean the environment
@@ -21,7 +21,6 @@ devtools::install_github("https://github.com/SamCao1991/GpGp.git")
 library(GpGp)
 library(FNN)
 library(scoringRules)
-library(parallel)
 if(file.exists("CQCD.R")){
   source("CQCD.R")
 }else{
@@ -142,7 +141,7 @@ model_fit <- function(locsIdx)
       return(likobj)
   }
   
-  FisherObj <- fisher_scoring(objfun, thetaFit, resp_func, T, 1e-4, maxIter)
+  FisherObj <- fisher_scoring(objfun, thetaFit, resp_func, F, 1e-4, maxIter)
   thetaFit <- FisherObj$logparms
   OOSScore <- OOS_score(theta = resp_func(thetaFit), idxLocsRel = locsIdx)
   list(theta = thetaFit, score = OOSScore)
@@ -160,28 +159,14 @@ selectIdx <- c()
 Loop over lambda.
 ```{r loop over lambda, eval = T}
 startTime <- Sys.time()
-for(i in 1 : dTrain)
-{
-  cat("\n====================================\n")
-  unselectIdx <- setdiff(1 : dTrain, selectIdx)
-  idxList <- lapply(unselectIdx, function(x){c(selectIdx, x)})
-  models <- mclapply(idxList, model_fit, mc.cores = 8)
-  scores <- unlist(lapply(models, function(x){x$score}))
-  idxBest <- which.min(scores)
-  cat("i =", i, "idxBest is", idxList[[idxBest]], "\n")
-  # Store results
-  idxSet[[i]] <- idxList[[idxBest]] + 1
-  thetaSet[[i]] <- rep(0, dTrain + 2)
-  thetaSet[[i]][c(1, idxSet[[i]], dTrain + 2)] <- 
-    resp_func(models[[idxBest]]$theta)
-  scoreSet[[i]] <- models[[idxBest]]$score
-  theta[c(1, idxSet[[i]], dTrain + 2)] <- models[[idxBest]]$theta
-  selectIdx <- idxList[[idxBest]]
-  if(i > 1 && scoreSet[[i]] / scoreSet[[i - 1]] > 0.99 &&
-     length(setdiff(idxSet[[i]], idxSet[[i - 1]])) > 0 && 
-     sum(thetaSet[[i]][2 : (dTrain + 1)]) > 0.1)
-    break
-}
+
+model <- model_fit(c(1 : dTrain))
+# Store results
+i <- 1
+idxSet[[i]] <- which(resp_func(model$theta[2 : (dTrain + 1)]) > 1e-7) + 1
+thetaSet[[i]] <- resp_func(model$theta)
+scoreSet[[i]] <- model$score
+
 endTime <- Sys.time()
 timeObj <- endTime - startTime
 timeObj
@@ -190,5 +175,5 @@ timeObj
 ```{r save the result, eval = T}
 save(list = c("dTrain", "idxSet", "thetaSet", "scoreSet",
               "nTrain", "timeObj"), 
-     file = paste0("forward_select_", nTrain, "_", dTrain, ".RData"))
+     file = paste0("Fisher_scoring_", nTrain, "_", dTrain, ".RData"))
 ```
