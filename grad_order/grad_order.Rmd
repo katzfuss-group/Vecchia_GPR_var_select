@@ -1,0 +1,176 @@
+---
+title: "Order of Derivatives"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preparation
+Clean the environment
+```{r clean environment}
+rm(list = ls())
+```
+Need to install a modified version of the GpGp R package.
+```{r install the moderated GpGp Pkg}
+devtools::install_github("https://github.com/SamCao1991/GpGp.git")
+library(GpGp)
+library(mvtnorm)
+library(lhs)
+set.seed(123)
+```
+
+## Experiment with indep
+Simulate GP.
+```{r simulate GP, eval = T}
+n <- 5e3
+d <- 1e3
+d0 <- 5
+m <- 100
+rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+locs <- randomLHS(n, d)
+locs <- locs * outer(rep(sqrt(n), n), 
+                     1 / sqrt(colSums(locs^2)))
+covM <- matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+rm(covM, cholM)
+```
+A list of theta, where the gradients are computed.
+```{r theta list, eval = T}
+thetaList <- list()
+thetaList[[1]] <- c(sigmasq, rep(1e-8, d), tausq)
+for(l in 2 : d0)
+  thetaList[[l]] <- c(sigmasq, rSq[1 : (l - 1)], rep(0, d + 1 - l), tausq)
+```
+Compute the gradient.
+```{r compute grad, eval = T}
+gradList <- list()
+gradMinibatList <- list()
+batchSz <- 500
+idxMinibat <- sample(1 : n, batchSz)
+for(i in 1 : length(thetaList))
+{
+  theta <- thetaList[[i]]
+  locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
+  odr <- order_maxmin(locsScal[, 1 : d0, drop = F])
+  yOdr <- y[odr]
+  locsOdr <- locs[odr, , drop = F]
+  locsScalOdr <- locsScal[odr, , drop = F]
+  NNarray <- find_ordered_nn(locsScalOdr[, 1 : d0, drop = F], m = m)
+  
+  gradObj <- vecchia_meanzero_loglik_grad_info(theta, 
+                                              "matern25_scaledim_sqrelevance",
+                                              y, locs, NNarray)
+  gradList[[i]] <- gradObj$grad[2 : (d + 1)] / n
+  gradObj <- vecchia_meanzero_loglik_grad_info(theta, 
+                                              "matern25_scaledim_sqrelevance",
+                                              y, locs, 
+                                              NNarray[idxMinibat, , drop = F])
+  gradMinibatList[[i]] <- gradObj$grad[2 : (d + 1)] / length(idxMinibat)
+}
+```
+
+## Experiment with dep
+Simulate GP.
+```{r simulate GP dep, eval = T}
+rho <- 0.9
+covM <- matrix(rho, d, d)
+diag(covM) <- 1
+locs <- rmvnorm(n, sigma = covM)
+locs <- locs * outer(rep(sqrt(n), n), 
+                     1 / sqrt(colSums(locs^2)))
+covM <- matern25_scaledim_sqrelevance(c(sigmasq, rSq, tausq), locs)
+cholM <- t(chol(covM))
+y <- as.vector(cholM %*% rnorm(n))
+rm(covM, cholM)
+```
+Compute the gradient.
+```{r compute grad dep, eval = T}
+gradDepList <- list()
+gradMinibatDepList <- list()
+idxMinibat <- sample(1 : n, 200)
+for(i in 1 : length(thetaList))
+{
+  theta <- thetaList[[i]]
+  locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
+  odr <- order_maxmin(locsScal[, 1 : d0, drop = F])
+  yOdr <- y[odr]
+  locsOdr <- locs[odr, , drop = F]
+  locsScalOdr <- locsScal[odr, , drop = F]
+  NNarray <- find_ordered_nn(locsScalOdr[, 1 : d0, drop = F], m = m)
+  
+  gradObj <- vecchia_meanzero_loglik_grad_info(theta, 
+                                              "matern25_scaledim_sqrelevance",
+                                              y, locs, NNarray)
+  gradDepList[[i]] <- gradObj$grad[2 : (d + 1)] / n
+  gradObj <- vecchia_meanzero_loglik_grad_info(theta, 
+                                              "matern25_scaledim_sqrelevance",
+                                              y, locs, 
+                                              NNarray[idxMinibat, , drop = F])
+  gradMinibatDepList[[i]] <- gradObj$grad[2 : (d + 1)] / length(idxMinibat)
+}
+```
+
+## Save image
+```{r save image, eval = T}
+save.image("grad_order.RData")
+```
+
+## Plot
+Plot the derivatives.
+```{r plot gradient, eval = F}
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(reshape)
+
+dfGrad <- matrix(NA, d * d0 * 2, 3)
+dfGrad[, 1] <- kronecker(c(1 : (d0 * 2)), rep(1, d))
+dfGrad[, 2] <- c(unlist(lapply(gradList, function(x){x / max(abs(x))})),
+                 unlist(lapply(gradDepList, function(x){x / max(abs(x))})))
+dfGrad[, 3] <- kronecker(rep(1, d0 * 2), c(1 : d0, rep(d0 + 1, d - d0)))
+colnames(dfGrad) <- c("ID", "grad", "col")
+dfGrad <- as.data.frame(dfGrad)
+dfGrad$col <- as.factor(dfGrad$col)
+dfGrad$ID <- as.factor(dfGrad$ID)
+
+ggplot(data = dfGrad, aes(x = ID, y = grad, col = col)) +
+  geom_point() +
+  scale_color_manual(breaks = unique(dfGrad$col),
+                     values = c(rainbow(d0), rep("grey", d - d0))) +
+  geom_vline(xintercept = d0 + 0.5, col = "red", lty = "dashed") +
+  xlab("# Selected Predictors (Left: independent | Right: dependent)") + 
+  ylab("Normalized Gradient") + 
+  scale_x_discrete(breaks = paste(1 : 10),
+        labels = paste(c(0 : 4, 0 : 4))) +
+  theme(legend.position = "none")
+ggsave(paste0("gradient_magnitude.pdf"), width = 7, height = 5)
+```
+```{r plot gradient mini-bath, eval = F}
+dfGrad <- matrix(NA, d * d0 * 2, 3)
+dfGrad[, 1] <- kronecker(c(1 : (d0 * 2)), rep(1, d))
+dfGrad[, 2] <- c(unlist(lapply(gradMinibatList, function(x){x / max(abs(x))})),
+                 unlist(lapply(gradMinibatDepList, function(x){x / max(abs(x))})))
+dfGrad[, 3] <- kronecker(rep(1, d0 * 2), c(1 : d0, rep(d0 + 1, d - d0)))
+colnames(dfGrad) <- c("ID", "grad", "col")
+dfGrad <- as.data.frame(dfGrad)
+dfGrad$col <- as.factor(dfGrad$col)
+dfGrad$ID <- as.factor(dfGrad$ID)
+
+ggplot(data = dfGrad, aes(x = ID, y = grad, col = col)) +
+  geom_point() +
+  scale_color_manual(breaks = unique(dfGrad$col),
+                     values = c(rainbow(d0), rep("grey", d - d0))) +
+  geom_vline(xintercept = d0 + 0.5, col = "red", lty = "dashed") +
+  xlab("# Selected Predictors (Left: independent | Right: dependent)") + 
+  ylab("Normalized Gradient") + 
+  scale_x_discrete(breaks = paste(1 : 10),
+        labels = paste(c(0 : 4, 0 : 4))) +
+  theme(legend.position = "none")
+ggsave(paste0("gradient_magnitude_minibat.pdf"), width = 7, height = 5)
+```
+
