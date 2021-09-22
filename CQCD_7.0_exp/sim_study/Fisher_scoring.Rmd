@@ -26,10 +26,14 @@ if(file.exists("CQCD.R")){
 }else{
   source("../CQCD.R")
 }
-if(file.exists("data_35000.RData")){
-  load("data_35000.RData")
+args <- commandArgs(trailingOnly = T)
+if(length(args) != 3)
+  stop("Wrong number of input args\n")
+dataInFile <- args[1]
+if(file.exists(dataInFile)){
+  load(dataInFile)
 }else{
-  load("../../sim_study_data_gen/data_35000.RData")
+  load(paste0("../../sim_study_data_gen/", dataInFile))
 }
 source("fisher_scoring.R")
 set.seed(123)
@@ -40,8 +44,8 @@ m <- 100
 k <- 3
 nOOS <- 5e3
 nTest <- 5e3
-nTrain <- 5e2
-dTrain <- 1e3
+nTrain <- as.numeric(args[2])
+dTrain <- as.numeric(args[3])
 locsTrain <- locs[1 : nTrain, 1 : dTrain, drop = F]
 locsOOS <- locs[(nTrain + 1) : (nTrain + nOOS), 1 : dTrain, drop = F]
 locsTest <- locs[(nTrain + nOOS + 1) : (nTrain + nOOS + nTest), 1 : dTrain, 
@@ -119,30 +123,39 @@ model_fit <- function(locsIdx)
 {
   locsFit <- locsTrain[, locsIdx, drop = F]
   thetaFit <- theta[c(1, locsIdx + 1, dTrain + 2)]
-  locsFitScal <- locsFit %*% 
-      diag(sqrt(resp_func(thetaFit[2 : (1 + length(locsIdx))])), 
-           length(locsIdx), length(locsIdx))
-  odr <- order_maxmin(locsFitScal)
-  yOdr <- yTrain[odr]
-  locsFitScalOdr <- locsFitScal[odr, , drop = F]
-  locsFitOdr <- locsFit[odr, , drop = F]
-  NNarray <- GpGp::find_ordered_nn(locsFitScalOdr, m = m)
-  
-  objfun <- function(thetaTrans){
-    likobj <- 
-      vecchia_meanzero_loglik_grad_info(resp_func(thetaTrans), 
-                                        "matern25_scaledim_sqrelevance",
-                                        yOdr, locsFitOdr, 
-                                        NNarray)
-      likobj$loglik <- -likobj$loglik
-      likobj$grad <- -c(likobj$grad) * dresp_func(thetaTrans)
-      likobj$info <- likobj$info * outer(dresp_func(thetaTrans),
-                                         dresp_func(thetaTrans))
-      return(likobj)
+  crtIter <- 1
+  ttlIter <- 0
+  while(TRUE)
+  {
+    locsFitScal <- locsFit %*% 
+        diag(sqrt(resp_func(thetaFit[2 : (1 + length(locsIdx))])), 
+             length(locsIdx), length(locsIdx))
+    odr <- order_maxmin(locsFitScal)
+    yOdr <- yTrain[odr]
+    locsFitScalOdr <- locsFitScal[odr, , drop = F]
+    locsFitOdr <- locsFit[odr, , drop = F]
+    NNarray <- GpGp::find_ordered_nn(locsFitScalOdr, m = m)
+    
+    objfun <- function(thetaTrans){
+      likobj <- 
+        vecchia_meanzero_loglik_grad_info(resp_func(thetaTrans), 
+                                          "matern25_scaledim_sqrelevance",
+                                          yOdr, locsFitOdr, 
+                                          NNarray)
+        likobj$loglik <- -likobj$loglik
+        likobj$grad <- -c(likobj$grad) * dresp_func(thetaTrans)
+        likobj$info <- likobj$info * outer(dresp_func(thetaTrans),
+                                           dresp_func(thetaTrans))
+        return(likobj)
+    }
+    
+    FisherObj <- fisher_scoring(objfun, thetaFit, resp_func, F, 1e-4, crtIter)
+    thetaFit <- FisherObj$logparms
+    ttlIter <- ttlIter + crtIter
+    crtIter <- min(2 * crtIter, maxIter - ttlIter)
+    if(ttlIter == maxIter)
+      break
   }
-  
-  FisherObj <- fisher_scoring(objfun, thetaFit, resp_func, F, 1e-4, maxIter)
-  thetaFit <- FisherObj$logparms
   OOSScore <- OOS_score(theta = resp_func(thetaFit), idxLocsRel = locsIdx)
   list(theta = thetaFit, score = OOSScore)
 }
@@ -173,7 +186,11 @@ timeObj
 ```
 
 ```{r save the result, eval = T}
+if(grepl("dep", dataInFile, ignore.case = T)){
+  dataOutFile <- paste0("Fisher_scoring_dep_", nTrain, "_", dTrain, ".RData")
+}else
+  dataOutFile <- paste0("Fisher_scoring_", nTrain, "_", dTrain, ".RData")
 save(list = c("dTrain", "idxSet", "thetaSet", "scoreSet",
               "nTrain", "timeObj"), 
-     file = paste0("Fisher_scoring_", nTrain, "_", dTrain, ".RData"))
+     file = dataOutFile)
 ```

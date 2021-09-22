@@ -26,10 +26,14 @@ if(file.exists("CQCD.R")){
 }else{
   source("../CQCD.R")
 }
-if(file.exists("data_35000.RData")){
-  load("data_35000.RData")
+args <- commandArgs(trailingOnly = T)
+if(length(args) != 3)
+  stop("Wrong number of input args\n")
+dataInFile <- args[1]
+if(file.exists(dataInFile)){
+  load(dataInFile)
 }else{
-  load("../../sim_study_data_gen/data_35000.RData")
+  load(paste0("../../sim_study_data_gen/", dataInFile))
 }
 set.seed(123)
 ```
@@ -39,8 +43,8 @@ m <- 100
 k <- 3
 nOOS <- 5e3
 nTest <- 5e3
-nTrain <- 5e2
-dTrain <- 1e3
+nTrain <- as.numeric(args[2])
+dTrain <- as.numeric(args[3])
 locsTrain <- locs[1 : nTrain, 1 : dTrain, drop = F]
 locsOOS <- locs[(nTrain + 1) : (nTrain + nOOS), 1 : dTrain, drop = F]
 locsTest <- locs[(nTrain + nOOS + 1) : (nTrain + nOOS + nTest), 1 : dTrain, 
@@ -271,7 +275,11 @@ timeObj
 ```
 
 ```{r save the result, eval = T}
+if(grepl("dep", dataInFile, ignore.case = T)){
+  dataOutFile <- paste0("bridge_FB_CQCD_dep_", nTrain, "_", dTrain, ".RData")
+}else
+  dataOutFile <- paste0("bridge_FB_CQCD_", nTrain, "_", dTrain, ".RData")
 save(list = c("dTrain", "idxSet", "thetaSet", "scoreSet", "lambdaSet", "loglikSet",
               "lambdaVec", "nTrain", "timeObj"), 
-     file = paste0("bridge_FB_CQCD_", nTrain, "_", dTrain, ".RData"))
+     file = dataOutFile)
 ```
