@@ -1,0 +1,150 @@
+---
+title: "performance"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Goal
+
+Produce metrics for the estimation results in the simulation study.
+
+```{r clean environment}
+rm(list = ls())
+```
+
+## Implementation
+
+Need to install a modified version of the GpGp R package.
+```{r install the moderated GpGp Pkg}
+library(GpGp)
+library(FNN)
+library(scoringRules)
+library(parallel)
+args <- commandArgs(trailingOnly = T)
+if(length(args) != 3)
+  stop("Wrong number of input args\n")
+rsltFile <- args[1]
+dataFile <- args[2]
+dataOutFile <- args[3]
+if(file.exists(dataFile)){
+  load(dataFile)
+}else{
+  load(paste0("../../sim_study_data_gen/", dataFile))
+}
+if(file.exists(rsltFile)){
+  load(rsltFile)  
+}else{
+  cat(NA, NA, NA, NA, sep = ",", file = dataOutFile, append = T)
+  cat("\n", file = dataOutFile, append = T)
+  q()
+}
+
+set.seed(123)
+```
+
+Divide observations.
+```{r divide GP obs, eval = T}
+m <- 100
+n <- length(y)
+nTest <- 5e3
+nTrain <- n - nTest
+locsTrain <- locs[1 : (n - nTest), 1 : dTrain, drop = F]
+locsTest <- locs[(n - nTest + 1) : n, 1 : dTrain, drop = F]
+yTrain <- y[1 : (n - nTest)]
+yTest <- y[(n - nTest + 1) : n]
+```
+
+Function for computing the test score, assuming the squared relevance parameterized Matern25 kernel.
+```{r test score, eval = T}
+test_score <- function(theta, idxLocsRel)
+{
+  dRel <- length(idxLocsRel)
+  locsRel <- rbind(locsTrain, locsTest)[, idxLocsRel, drop = F]
+  thetaRel <- theta[c(1, idxLocsRel + 1, dTrain + 2)]
+  locsRelScal <- locsRel %*% 
+    diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
+  yTtl <- c(yTrain, yTest)
+  NNarray <- get.knnx(locsRelScal[1 : nTrain, , drop = F],
+                      locsRelScal[(nTrain + 1) : (nTrain + nTest), , drop = F], 
+                      m)$nn.index
+  NNarray <- cbind(NNarray, (nTrain + 1) : (nTrain + nTest))
+  mus <- rep(NA, nTest)
+  sds <- rep(NA, nTest)
+  for(i in 1 : nTest){
+    NN <- NNarray[i, ]
+    K <- matern25_scaledim_sqrelevance(thetaRel, locsRel[NN, , drop = F])
+    L <- t(chol(K))
+    mus[i] <- L[m + 1, 1 : m] %*% 
+      forwardsolve(L[1 : m, 1 : m], yTrain[NN[1 : m]])
+    sds[i] <- L[m+1, m+1]
+  }
+  mean(crps_norm(y = yTest, mean = mus, sd = sds))
+}
+```
+
+Measurements
+```{r CRPS, eval = T}
+idxOpt <- max(length(thetaSet) - 1, 1)
+CRPS <- test_score(thetaSet[[idxOpt]], idxSet[[idxOpt]] - 1)
+distance <- sum(abs(thetaSet[[idxOpt]][2 : (dTrain + 1)] - rSq[1 : dTrain]))
+nPred <- length(idxSet[[idxOpt]])
+timeVal <- as.numeric(timeObj, units = "secs")
+cat(CRPS, nPred, distance, timeVal, sep = ",", file = dataOutFile, append = T)
+cat("\n", file = dataOutFile, append = T)
+```
+
+Output to latex format
+```{r latex tbl, eval = F}
+tbl <- as.matrix(read.csv("table.csv", header = F))
+for(i in 1 : 3)
+{
+  if(i == 1){
+    cat("\\multirow{8}{*}{$500$} &")
+  }else if(i == 2){
+    cat("\\multirow{8}{*}{$5{,}000$} &")
+  }else{
+    cat("\\multirow{8}{*}{$25{,}000$} &")
+  }
+  tbl2 <- matrix(NA, 8, 8)
+  tbl3 <- tbl[((i - 1) * 16 + 1) : (i * 16), ]
+  for(j in 1 : 8)
+  {
+    tbl2[, j] = c(tbl3[((j - 1) * 2 + 1), ], tbl3[((j - 1) * 2 + 2), ])
+  }
+  for(i1 in 1 : nrow(tbl2))
+  {
+    if(i1 == 1)
+      cat("\\multirow{4}{*}{I}")
+    if(i1 == 5)
+      cat("& \\multirow{4}{*}{D}")
+    if((i1 - 1) %% 4 > 0)
+      cat("& ")
+    for(j1 in 1 : ncol(tbl2))
+    {
+      if(is.na(tbl2[i1, j1])){
+        cat("& N.A. ")
+      }else{
+        cat("&", signif(tbl2[i1, j1], digits = 2), "")
+      }
+    }
+    cat("\\\\")
+    if((i1) %% 8 == 0){
+      cat(" \\cline{1-10}")
+    }else if((i1) %% 4 == 0){
+      cat(" \\cline{3-10}")
+    }
+    cat("\n")
+  }
+}
+```
+
+
+
+
+
+
+
+
