@@ -50,8 +50,7 @@ Divide observations.
 m <- 100
 n <- length(y)
 nTest <- 5e3
-nTrain <- n - nTest
-locsTrain <- locs[1 : (n - nTest), 1 : dTrain, drop = F]
+locsTrain <- locs[1 : nTrain, 1 : dTrain, drop = F]
 locsTest <- locs[(n - nTest + 1) : n, 1 : dTrain, drop = F]
 yTrain <- y[1 : (n - nTest)]
 yTest <- y[(n - nTest + 1) : n]
