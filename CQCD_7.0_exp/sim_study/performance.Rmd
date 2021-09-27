@@ -88,7 +88,8 @@ Measurements
 ```{r CRPS, eval = T}
 idxOpt <- max(length(thetaSet) - 1, 1)
 CRPS <- test_score(thetaSet[[idxOpt]], idxSet[[idxOpt]] - 1)
-distance <- sum(abs(thetaSet[[idxOpt]][2 : (dTrain + 1)] - rSq[1 : dTrain]))
+distance <- sum(abs(sqrt(thetaSet[[idxOpt]][2 : (dTrain + 1)]) - 
+                      sqrt(rSq[1 : dTrain])))
 nPred <- length(idxSet[[idxOpt]])
 timeVal <- as.numeric(timeObj, units = "secs")
 cat(CRPS, nPred, distance, timeVal, sep = ",", file = dataOutFile, append = T)

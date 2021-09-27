@@ -39,38 +39,59 @@ cholM <- t(chol(covM))
 y <- as.vector(cholM %*% rnorm(n))
 rm(covM, cholM)
 ```
-A list of theta, where the gradients are computed.
-```{r theta list, eval = T}
-thetaList <- list()
-thetaList[[1]] <- c(sigmasq, rep(1e-8, d), tausq)
-for(l in 2 : d0)
-  thetaList[[l]] <- c(sigmasq, rSq[1 : (l - 1)], rep(0, d + 1 - l), tausq)
-```
 Compute the gradient.
 ```{r compute grad, eval = T}
 gradList <- list()
 gradMinibatList <- list()
 batchSz <- 500
 idxMinibat <- sample(1 : n, batchSz)
-for(i in 1 : length(thetaList))
+idxSel <- c()
+idxSelMinibat <- c()
+for(i in 1 : d0)
 {
-  theta <- thetaList[[i]]
+  if(i == 1){
+    theta <- c(sigmasq, rep(1e-8, d), tausq)
+  }else{
+    theta <- c(sigmasq, rep(0, d), tausq)
+    theta[idxSel] <- rSq[idxSel - 1]
+  }
   locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
-  odr <- order_maxmin(locsScal[, 1 : d0, drop = F])
+  odr <- order_maxmin(locsScal[, , drop = F])
   yOdr <- y[odr]
   locsOdr <- locs[odr, , drop = F]
   locsScalOdr <- locsScal[odr, , drop = F]
-  NNarray <- find_ordered_nn(locsScalOdr[, 1 : d0, drop = F], m = m)
+  NNarray <- find_ordered_nn(locsScalOdr[, , drop = F], m = m)
   
   gradObj <- vecchia_meanzero_loglik_grad_info(theta, 
                                               "matern25_scaledim_sqrelevance",
-                                              y, locs, NNarray)
+                                              yOdr, locsOdr, NNarray)
   gradList[[i]] <- gradObj$grad[2 : (d + 1)] / n
+  if(i > 1)
+    gradList[[i]][idxSel - 1] <- NA
+  idxSel <- c(idxSel, order(gradObj$grad[2 : (d + 1)], decreasing = T)[1] + 1)
+  
+  if(i == 1){
+    theta <- c(sigmasq, rep(1e-8, d), tausq)
+  }else{
+    theta <- c(sigmasq, rep(0, d), tausq)
+    theta[idxSelMinibat] <- rSq[idxSelMinibat - 1]
+  }
+  locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
+  odr <- order_maxmin(locsScal[, , drop = F])
+  yOdr <- y[odr]
+  locsOdr <- locs[odr, , drop = F]
+  locsScalOdr <- locsScal[odr, , drop = F]
+  NNarray <- find_ordered_nn(locsScalOdr[, , drop = F], m = m)
+  
   gradObj <- vecchia_meanzero_loglik_grad_info(theta, 
                                               "matern25_scaledim_sqrelevance",
-                                              y, locs, 
+                                              yOdr, locsOdr,
                                               NNarray[idxMinibat, , drop = F])
   gradMinibatList[[i]] <- gradObj$grad[2 : (d + 1)] / length(idxMinibat)
+  if(i > 1)
+    gradMinibatList[[i]][idxSelMinibat - 1] <- NA
+  idxSelMinibat <- c(idxSelMinibat, order(gradObj$grad[2 : (d + 1)], 
+                                   decreasing = T)[1] + 1)
 }
 ```
 
@@ -92,26 +113,55 @@ Compute the gradient.
 ```{r compute grad dep, eval = T}
 gradDepList <- list()
 gradMinibatDepList <- list()
+batchSz <- 500
 idxMinibat <- sample(1 : n, batchSz)
-for(i in 1 : length(thetaList))
+idxSel <- c()
+idxSelMinibat <- c()
+for(i in 1 : d0)
 {
-  theta <- thetaList[[i]]
+  if(i == 1){
+    theta <- c(sigmasq, rep(1e-8, d), tausq)
+  }else{
+    theta <- c(sigmasq, rep(0, d), tausq)
+    theta[idxSel] <- rSq[idxSel - 1]
+  }
   locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
-  odr <- order_maxmin(locsScal[, 1 : d0, drop = F])
+  odr <- order_maxmin(locsScal[, , drop = F])
   yOdr <- y[odr]
   locsOdr <- locs[odr, , drop = F]
   locsScalOdr <- locsScal[odr, , drop = F]
-  NNarray <- find_ordered_nn(locsScalOdr[, 1 : d0, drop = F], m = m)
+  NNarray <- find_ordered_nn(locsScalOdr[, , drop = F], m = m)
   
   gradObj <- vecchia_meanzero_loglik_grad_info(theta, 
                                               "matern25_scaledim_sqrelevance",
-                                              y, locs, NNarray)
+                                              yOdr, locsOdr, NNarray)
   gradDepList[[i]] <- gradObj$grad[2 : (d + 1)] / n
+  if(i > 1)
+    gradDepList[[i]][idxSel - 1] <- NA
+  idxSel <- c(idxSel, order(gradObj$grad[2 : (d + 1)], decreasing = T)[1] + 1)
+  
+  if(i == 1){
+    theta <- c(sigmasq, rep(1e-8, d), tausq)
+  }else{
+    theta <- c(sigmasq, rep(0, d), tausq)
+    theta[idxSelMinibat] <- rSq[idxSelMinibat - 1]
+  }
+  locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
+  odr <- order_maxmin(locsScal[, , drop = F])
+  yOdr <- y[odr]
+  locsOdr <- locs[odr, , drop = F]
+  locsScalOdr <- locsScal[odr, , drop = F]
+  NNarray <- find_ordered_nn(locsScalOdr[, , drop = F], m = m)
+  
   gradObj <- vecchia_meanzero_loglik_grad_info(theta, 
                                               "matern25_scaledim_sqrelevance",
-                                              y, locs, 
+                                              yOdr, locsOdr,
                                               NNarray[idxMinibat, , drop = F])
   gradMinibatDepList[[i]] <- gradObj$grad[2 : (d + 1)] / length(idxMinibat)
+  if(i > 1)
+    gradMinibatDepList[[i]][idxSelMinibat - 1] <- NA
+  idxSelMinibat <- c(idxSelMinibat, order(gradObj$grad[2 : (d + 1)], 
+                                   decreasing = T)[1] + 1)
 }
 ```
 
@@ -130,8 +180,10 @@ library(reshape)
 
 dfGrad <- matrix(NA, d * d0 * 2, 3)
 dfGrad[, 1] <- kronecker(c(1 : (d0 * 2)), rep(1, d))
-dfGrad[, 2] <- c(unlist(lapply(gradList, function(x){x / max(abs(x))})),
-                 unlist(lapply(gradDepList, function(x){x / max(abs(x))})))
+dfGrad[, 2] <- c(unlist(lapply(gradList, 
+                               function(x){x / max(abs(x), na.rm = T)})),
+                 unlist(lapply(gradDepList, 
+                               function(x){x / max(abs(x), na.rm = T)})))
 dfGrad[, 3] <- kronecker(rep(1, d0 * 2), c(1 : d0, rep(d0 + 1, d - d0)))
 colnames(dfGrad) <- c("ID", "grad", "col")
 dfGrad <- as.data.frame(dfGrad)
@@ -150,11 +202,14 @@ ggplot(data = dfGrad, aes(x = ID, y = grad, col = col)) +
   theme(legend.position = "none")
 ggsave(paste0("gradient_magnitude.pdf"), width = 7, height = 5)
 ```
+
 ```{r plot gradient mini-bath, eval = F}
 dfGrad <- matrix(NA, d * d0 * 2, 3)
 dfGrad[, 1] <- kronecker(c(1 : (d0 * 2)), rep(1, d))
-dfGrad[, 2] <- c(unlist(lapply(gradMinibatList, function(x){x / max(abs(x))})),
-                 unlist(lapply(gradMinibatDepList, function(x){x / max(abs(x))})))
+dfGrad[, 2] <- c(unlist(lapply(gradMinibatList, 
+                               function(x){x / max(abs(x), na.rm = T)})),
+                 unlist(lapply(gradMinibatDepList, 
+                               function(x){x / max(abs(x), na.rm = T)})))
 dfGrad[, 3] <- kronecker(rep(1, d0 * 2), c(1 : d0, rep(d0 + 1, d - d0)))
 colnames(dfGrad) <- c("ID", "grad", "col")
 dfGrad <- as.data.frame(dfGrad)
