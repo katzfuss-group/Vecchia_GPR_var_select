@@ -188,13 +188,9 @@ Lambda vector and generate init `lambda`.
 lambdaUp <- 64
 lambdaVec <- c(rev(2^(seq(from = log2(0.125/8), to = log2(max(0.125, lambdaUp)), 
                         by = 1))))
-nStartPnt <- 1
+nStartPnt <- 10
 theta_gen <- function(){
-  # x <- runif(dTrain + 2)
-  # x[2 : (dTrain + 1)] <- x[2 : (dTrain + 1)]^2
-  x <- c(0.25, rep(1, dTrain), 0.01)
-  # x <- c(sigmasq, rSq[1 : dTrain] + 1e-4, tausq)
-  
+  x <- c(0.25, runif(dTrain), 0.01)
   link_func(x)
 }
 niter <- length(lambdaVec)

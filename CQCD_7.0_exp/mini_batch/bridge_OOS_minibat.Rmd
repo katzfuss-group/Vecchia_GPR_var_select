@@ -82,7 +82,7 @@ OOS_score <- function(theta)
 
 ```{r batch size, eval = T}
 batchSzCQCD <- 1e3
-batchSzGrad <- 2e2
+batchSzGrad <- 5e2
 ```
 
 Bridge penalty with `gamma = 1/4`.

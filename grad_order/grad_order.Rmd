@@ -92,7 +92,7 @@ Compute the gradient.
 ```{r compute grad dep, eval = T}
 gradDepList <- list()
 gradMinibatDepList <- list()
-idxMinibat <- sample(1 : n, 200)
+idxMinibat <- sample(1 : n, batchSz)
 for(i in 1 : length(thetaList))
 {
   theta <- thetaList[[i]]
@@ -143,7 +143,7 @@ ggplot(data = dfGrad, aes(x = ID, y = grad, col = col)) +
   scale_color_manual(breaks = unique(dfGrad$col),
                      values = c(rainbow(d0), rep("grey", d - d0))) +
   geom_vline(xintercept = d0 + 0.5, col = "red", lty = "dashed") +
-  xlab("# Selected Predictors (Left: independent | Right: dependent)") + 
+  xlab(expression(paste(d[1], " (Left: independent | Right: dependent)"))) + 
   ylab("Normalized Gradient") + 
   scale_x_discrete(breaks = paste(1 : 10),
         labels = paste(c(0 : 4, 0 : 4))) +
@@ -166,7 +166,7 @@ ggplot(data = dfGrad, aes(x = ID, y = grad, col = col)) +
   scale_color_manual(breaks = unique(dfGrad$col),
                      values = c(rainbow(d0), rep("grey", d - d0))) +
   geom_vline(xintercept = d0 + 0.5, col = "red", lty = "dashed") +
-  xlab("# Selected Predictors (Left: independent | Right: dependent)") + 
+  xlab(expression(paste(d[1], " (Left: independent | Right: dependent)"))) + 
   ylab("Normalized Gradient") + 
   scale_x_discrete(breaks = paste(1 : 10),
         labels = paste(c(0 : 4, 0 : 4))) +
