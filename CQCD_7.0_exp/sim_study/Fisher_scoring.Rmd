@@ -163,9 +163,10 @@ model_fit <- function(locsIdx)
 
 Init `theta`.
 ```{r Init theta, eval = T}
-theta <- get_start_parms(yTrain, sample(c(-1, 1), nTrain, replace = T), 
-                         locsTrain, "matern25_scaledim")$start_parms
-theta[2 : (dTrain + 1)] <- (1 / theta[2 : (dTrain + 1)])^2
+# theta <- get_start_parms(yTrain, sample(c(-1, 1), nTrain, replace = T), 
+#                          locsTrain, "matern25_scaledim")$start_parms
+# theta[2 : (dTrain + 1)] <- (1 / theta[2 : (dTrain + 1)])^2
+theta <- c(0.25, rep(0.01, dTrain), 0.01)
   
 idxSet <- list()
 thetaSet <- list()
