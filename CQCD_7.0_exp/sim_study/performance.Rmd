@@ -62,6 +62,7 @@ test_score <- function(theta, idxLocsRel)
 {
   dRel <- length(idxLocsRel)
   locsRel <- rbind(locsTrain, locsTest)[, idxLocsRel, drop = F]
+  locsRel0 <- rbind(locsTrain, locsTest)[, 1 : d0, drop = F]
   thetaRel <- theta[c(1, idxLocsRel + 1, dTrain + 2)]
   locsRelScal <- locsRel %*% 
     diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
@@ -72,189 +73,139 @@ test_score <- function(theta, idxLocsRel)
   NNarray <- cbind(NNarray, (nTrain + 1) : (nTrain + nTest))
   mus <- rep(NA, nTest)
   sds <- rep(NA, nTest)
+  diffFrob <- 0
   for(i in 1 : nTest){
     NN <- NNarray[i, ]
     K <- matern25_scaledim_sqrelevance(thetaRel, locsRel[NN, , drop = F])
+    K0 <- matern25_scaledim_sqrelevance(c(sigmasq, rSq[1 : d0], tausq), 
+                                        locsRel0[NN, , drop = F])
+    diagNorm <- diag(1 / sqrt(diag(K)), nrow(K), ncol(K))
+    diffFrob <- diffFrob + sum((diagNorm %*% K %*% diagNorm - K0)^2) / sum(K0^2)
     L <- t(chol(K))
     mus[i] <- L[m + 1, 1 : m] %*% 
       forwardsolve(L[1 : m, 1 : m], yTrain[NN[1 : m]])
     sds[i] <- L[m+1, m+1]
   }
   
-  mean(crps_norm(y = yTest, mean = mus, sd = sds))
+  CRPScore <- mean(crps_norm(y = yTest, mean = mus, sd = sds))
+  return(list(CRPScore = CRPScore, diffFrob = diffFrob / nTest))
 }
 ```
 
 Measurements
 ```{r CRPS, eval = T}
 idxOpt <- max(length(thetaSet) - 1, 1)
-CRPS <- test_score(thetaSet[[idxOpt]], idxSet[[idxOpt]] - 1)
-distance <- sum(abs(sqrt(thetaSet[[idxOpt]][2 : (dTrain + 1)]) - 
-                      sqrt(rSq[1 : dTrain])))
-nPred <- length(idxSet[[idxOpt]])
+testObj <- test_score(thetaSet[[idxOpt]], idxSet[[idxOpt]] - 1)
+CRPS <- testObj$CRPScore
+distance <- testObj$diffFrob
+falseP <- (length(idxSet[[idxOpt]]) - 
+             length(intersect(idxSet[[idxOpt]], 2 : (d0 + 1)))) / 
+  length(idxSet[[idxOpt]])
+falseN <- (d0 - length(intersect(idxSet[[idxOpt]], 2 : (d0 + 1)))) / 
+  (dTrain - length(idxSet[[idxOpt]]))
+if(is.na(falseN))
+  falseN <- 0
 timeVal <- as.numeric(timeObj, units = "secs")
-cat(CRPS, nPred, distance, timeVal, sep = ",", file = dataOutFile, append = T)
+cat(CRPS, distance, falseP, falseN, timeVal, sep = ",", file = dataOutFile, 
+    append = T)
 cat("\n", file = dataOutFile, append = T)
 ```
 
-Output to latex format
-```{r latex tbl, eval = F}
-tbl <- as.matrix(read.csv("table.csv", header = F))
-for(i in 1 : 3)
-{
-  if(i == 1){
-    cat("\\multirow{8}{*}{$500$} &")
-  }else if(i == 2){
-    cat("\\multirow{8}{*}{$5{,}000$} &")
-  }else{
-    cat("\\multirow{8}{*}{$25{,}000$} &")
-  }
-  tbl2 <- matrix(NA, 8, 8)
-  tbl3 <- tbl[((i - 1) * 16 + 1) : (i * 16), ]
-  for(j in 1 : 8)
-  {
-    tbl2[, j] = c(tbl3[((j - 1) * 2 + 1), ], tbl3[((j - 1) * 2 + 2), ])
-  }
-  for(i1 in 1 : nrow(tbl2))
-  {
-    if(i1 == 1)
-      cat("\\multirow{4}{*}{I}")
-    if(i1 == 5)
-      cat("& \\multirow{4}{*}{D}")
-    if((i1 - 1) %% 4 > 0)
-      cat("& ")
-    for(j1 in 1 : ncol(tbl2))
-    {
-      if(is.na(tbl2[i1, j1])){
-        cat("& N.A. ")
-      }else{
-        cat("&", signif(tbl2[i1, j1], digits = 2), "")
-      }
-    }
-    cat("\\\\")
-    if((i1) %% 8 == 0){
-      cat(" \\cline{1-10}")
-    }else if((i1) %% 4 == 0){
-      cat(" \\cline{3-10}")
-    }
-    cat("\n")
-  }
-}
-```
 
 ## Plot
 
-Build dataframe.
-```{r build df, eval = F}
+Read data from `table.csv` and build dataframe
+```{r read data, eval = F}
+meaVec <- c("CRPS", "Dist", "FPos", "FNeg", "Time")
+depVec <- c("I", "D")
+mtdVec <- c("REG", "Fisher", "FWD", "PGPR")
 nVec <- c(500, 5000, 25000)
 dVec <- c(100, 1000)
-mtdVec <- c("REG", "Fisher", "FWD", "PGPR")
-depVec <- c("I", "D")
-meaVec <- c("CRPS", "nSel", "Dist", "Time")
+meaNum <- length(meaVec)
+depNum <- length(depVec)
+mtdNum <- length(mtdVec)
 nNum <- length(nVec)
 dNum <- length(dVec)
-mtdNum <- length(mtdVec)
-depNum <- length(depVec)
-meaNum <- length(meaVec)
-dfMat <- matrix(NA, nNum * dNum * mtdNum * depNum * meaNum, 6)
+tbl <- read.csv("table.csv", header = F)
+dfMat <- matrix(NA, meaNum * depNum * mtdNum * nNum * dNum, 6)
+
 idx <- 1
 idx2 <- 1
-for(inNum in 1 : nNum){
-  for(idNum in 1 : dNum){
-    for(imtdNum in 1 : mtdNum){
-      # read 2 lines, 8 values, each inner iteration
-      dfMat[idx : (idx + 2 * meaNum - 1), 1] <- nVec[inNum]
-      dfMat[idx : (idx + 2 * meaNum - 1), 2] <- dVec[idNum]
-      dfMat[idx : (idx + 2 * meaNum - 1), 3] <- imtdNum
+for(n in nVec)
+  for(d in dVec)
+    for(imtd in 1 : mtdNum){
+      dfMat[idx : (idx + 2 * meaNum - 1), 1] <- n
+      dfMat[idx : (idx + 2 * meaNum - 1), 2] <- d
+      dfMat[idx : (idx + 2 * meaNum - 1), 3] <- imtd
       dfMat[idx : (idx + 2 * meaNum - 1), 4] <- c(rep(1, meaNum), 
-                                     rep(2, meaNum)) # 1 Ind 2 Dep
-      dfMat[idx : (idx + 2 * meaNum - 1), 5] <- rep(1 : meaNum, 2)
+                                                  rep(2, meaNum)) # dependency
+      dfMat[idx : (idx + 2 * meaNum - 1), 5] <- rep(1 : meaNum, 2) # measurement
       dfMat[idx : (idx + 2 * meaNum - 1), 6] <- c(t(tbl[c(idx2, idx2 + 1), ]))
       idx <- idx + 2 * meaNum
       idx2 <- idx2 + 2
     }
-  }
-}
-
 df <- as.data.frame(dfMat)
-df[, 1] <- paste0("(", df[, 1], ", ", df[, 2], ")")
-df <- df[, c(1, 3 : 6)]
-df[, 2] <- mtdVec[df[, 2]]
-df[, 3] <- depVec[df[, 3]]
-df[, 4] <- meaVec[df[, 4]]
-colnames(df) <- c("nd", "method", "dependence", "metric", "val")
+df[, 3] <- mtdVec[df[, 3]]
+df[, 4] <- depVec[df[, 4]]
+df[, 5] <- meaVec[df[, 5]]
+colnames(df) <- c("n", "d", "mtd", "dependence", "measurement", "val")
+df$n <- factor(df$n, levels = unique(df$n))
+df$d <- factor(df$d, levels = unique(df$d))
 df
 ```
 
-Plot
-```{r plot, eval = F}
+```{r plot accuracy measurements, eval = F}
 library(ggplot2)
 library(RColorBrewer)
 library(scales)
 library(reshape)
-for(i in 1 : meaNum){
-  meaName <- meaVec[i]
-  dfSub <- df[df$metric == meaName, ]
-  myplot <- ggplot(data = dfSub, aes(x = nd, y = val, 
-                                 col = method, shape = dependence,
-                                 group = interaction(method, dependence))) +
-    geom_point(alpha = 0.8) +
-    ylab(meaName) + 
-    xlab("(n, d)") +
-    scale_y_continuous(trans = pseudo_log_trans(sigma = 
-                                                  min(dfSub$val, na.rm = T))) 
-  print(myplot)
-  ggsave(paste0(meaName, ".pdf"), width = 7, height = 5)
-}
+dfAcc <- df[df$measurement != "Time" & df$dependence == "I" & 
+              df$measurement != "FNeg", ]
+dfAcc$val[dfAcc$measurement == "Dist"] <- 
+  pmin(dfAcc$val[dfAcc$measurement == "Dist"], 1) 
+dfAcc$measurement <- paste0(dfAcc$measurement, "-", dfAcc$d)
+dfAcc$measurement <- factor(dfAcc$measurement, 
+                            levels = unique(dfAcc$measurement))
+ggplot(data = dfAcc, aes(x = measurement, y = val, col = mtd, shape = n, 
+                         lty = mtd, group = interaction(mtd, n))) +
+  geom_point() + 
+  geom_line(alpha = 0.8) +
+  ylab("value") + 
+  xlab("meansurement-d") +
+  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01),
+                     breaks = 2^(-7 : 0)) 
+ggsave("sim_accu_indep.pdf", height = 5, width = 7)
 
+dfAcc <- df[df$measurement != "Time" & df$dependence == "D" & 
+              df$measurement != "FNeg", ]
+dfAcc$val[dfAcc$measurement == "Dist"] <- 
+  pmin(dfAcc$val[dfAcc$measurement == "Dist"], 1) 
+dfAcc$measurement <- paste0(dfAcc$measurement, "-", dfAcc$d)
+dfAcc$measurement <- factor(dfAcc$measurement, 
+                            levels = unique(dfAcc$measurement))
+ggplot(data = dfAcc, aes(x = measurement, y = val, col = mtd, shape = n, 
+                         lty = mtd, group = interaction(mtd, n))) +
+  geom_point() + 
+  geom_line(alpha = 0.8) +
+  ylab("value") + 
+  xlab("meansurement-d") +
+  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01),
+                     breaks = c(0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0)) 
+ggsave("sim_accu_dep.pdf", height = 5, width = 7)
 ```
 
-Performance metrics of `REG` under different `m`. 
-```{r metrics REG wrt m, eval = F}
-tbl4m <- read.csv("table.csv", header = F)
-dfMat <- matrix(NA, 240, 6)
-meaVec <- c("CRPS", "nSel", "Dist", "Time")
-depVec <- c("I", "D")
-idx <- 1
-idx2 <- 1
-for(n in c(500, 5000, 25000))
-  for(d in c(100, 1000))
-    for(m in c(10, 20, 50, 100, 200)){
-      dfMat[idx : (idx + 7), 1] <- n
-      dfMat[idx : (idx + 7), 2] <- d
-      dfMat[idx : (idx + 7), 3] <- m
-      dfMat[idx : (idx + 7), 4] <- c(rep(1, 4), rep(2, 4))
-      dfMat[idx : (idx + 7), 5] <- rep(1 : 4, 2)
-      dfMat[idx : (idx + 7), 6] <- c(t(tbl4m[c(idx2, idx2 + 1), ]))
-      idx <- idx + 8
-      idx2 <- idx2 + 2
-    }
-df <- as.data.frame(dfMat)
-df[, 1] <- paste0("(", df[, 1], ", ", df[, 2], ")")
-df <- df[, c(1, 3 : 6)]
-df[, 3] <- depVec[df[, 3]]
-df[, 4] <- meaVec[df[, 4]]
-colnames(df) <- c("nd", "m", "dependence", "metric", "val")
-df$m <- as.factor(df$m)
-df$nd <- factor(df$nd, levels = unique(df$nd))
-
-library(ggplot2)
-library(RColorBrewer)
-library(scales)
-library(reshape)
-for(i in 1 : length(meaVec)){
-  meaName <- meaVec[i]
-  dfSub <- df[df$metric == meaName, ]
-  myplot <- ggplot(data = dfSub, aes(x = nd, y = val, 
-                                 col = m, shape = dependence,
-                                 group = interaction(m, dependence))) +
-    geom_point(alpha = 0.8) +
-    ylab(meaName) + 
-    xlab("(n, d)")
-  print(myplot)
-  ggsave(paste0(meaName, ".pdf"), width = 7, height = 5)
-}
+```{r plot time measurements, eval = F}
+dfTime <- df[df$measurement == "Time", ]
+dfTime$n <- paste0("(", dfTime$n, ", ", dfTime$d, ")")
+dfTime$n <- factor(dfTime$n, levels = unique(dfTime$n))
+ggplot(data = dfTime, aes(x = n, y = val, col = mtd, shape = dependence, 
+                         lty = mtd, group = interaction(mtd, dependence))) +
+  geom_point() + 
+  geom_line(alpha = 0.8) +
+  ylab("time (s)") + 
+  xlab("(n, d)") +
+  scale_y_continuous(trans = pseudo_log_trans(sigma = 100), 
+                     breaks = c(50, 100, 200, 500, 1e3, 5e3, 1e4, 4e4)) 
+ggsave("sim_time.pdf", height = 5, width = 7)
 ```
-
-
 
