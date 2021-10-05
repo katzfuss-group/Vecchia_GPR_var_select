@@ -159,39 +159,33 @@ library(ggplot2)
 library(RColorBrewer)
 library(scales)
 library(reshape)
-dfAcc <- df[df$measurement != "Time" & df$dependence == "I" & 
-              df$measurement != "FNeg", ]
-dfAcc$val[dfAcc$measurement == "Dist"] <- 
-  pmin(dfAcc$val[dfAcc$measurement == "Dist"], 1) 
-dfAcc$measurement <- paste0(dfAcc$measurement, "-", dfAcc$d)
-dfAcc$measurement <- factor(dfAcc$measurement, 
-                            levels = unique(dfAcc$measurement))
-ggplot(data = dfAcc, aes(x = measurement, y = val, col = mtd, shape = n, 
-                         lty = mtd, group = interaction(mtd, n))) +
-  geom_point() + 
-  geom_line(alpha = 0.8) +
-  ylab("value") + 
-  xlab("meansurement-d") +
-  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01),
-                     breaks = 2^(-7 : 0)) 
-ggsave("sim_accu_indep.pdf", height = 5, width = 7)
-
-dfAcc <- df[df$measurement != "Time" & df$dependence == "D" & 
-              df$measurement != "FNeg", ]
-dfAcc$val[dfAcc$measurement == "Dist"] <- 
-  pmin(dfAcc$val[dfAcc$measurement == "Dist"], 1) 
-dfAcc$measurement <- paste0(dfAcc$measurement, "-", dfAcc$d)
-dfAcc$measurement <- factor(dfAcc$measurement, 
-                            levels = unique(dfAcc$measurement))
-ggplot(data = dfAcc, aes(x = measurement, y = val, col = mtd, shape = n, 
-                         lty = mtd, group = interaction(mtd, n))) +
-  geom_point() + 
-  geom_line(alpha = 0.8) +
-  ylab("value") + 
-  xlab("meansurement-d") +
-  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01),
-                     breaks = c(0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0)) 
-ggsave("sim_accu_dep.pdf", height = 5, width = 7)
+library(patchwork)
+rm(pltTtl)
+for(mea in c("CRPS", "Dist", "FPos", "Time")) # row
+  for(dep in c("I", "D"))
+    for(dTmp in dVec){
+      dfSub <- subset(df, measurement == mea & dependence == dep & d == dTmp)
+      plt <- ggplot(data = dfSub, 
+                    aes(x = n, y = val, col = mtd, shape = mtd, group = mtd)) +
+        geom_point(size = 3) + 
+        geom_line() +
+        theme(text = element_text(size = 20), legend.title = element_blank())
+      if(dep != "I" | dTmp != dVec[1]){
+        plt <- plt + theme(axis.title.y = element_blank())
+      }else
+        plt <- plt + ylab(mea)
+      if(mea != "Time"){
+        plt <- plt + 
+          theme(axis.title.x = element_blank(), 
+                axis.ticks.x=element_blank(), axis.text.x=element_blank())
+      }
+      if(exists("pltTtl")){
+        pltTtl <- pltTtl + plt
+      }else
+        pltTtl <- plt
+    }
+pltTtl + plot_layout(ncol = 4, guides = "collect")
+ggsave("tmp.pdf", height = 10, width = 14)
 ```
 
 ```{r plot time measurements, eval = F}
