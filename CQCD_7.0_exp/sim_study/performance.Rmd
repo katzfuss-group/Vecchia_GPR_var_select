@@ -23,19 +23,20 @@ library(GpGp)
 library(FNN)
 library(scoringRules)
 library(parallel)
+source("vecchia_scaled.R")
 args <- commandArgs(trailingOnly = T)
 if(length(args) != 3)
   stop("Wrong number of input args\n")
 rsltFile <- args[1]
 dataFile <- args[2]
 dataOutFile <- args[3]
-if(file.exists(dataFile)){
-  load(dataFile)
+if(file.exists(paste0("data/",dataFile))){
+  load(paste0("data/",dataFile))
 }else{
   load(paste0("../../sim_study_data_gen/", dataFile))
 }
-if(file.exists(rsltFile)){
-  load(rsltFile)  
+if(file.exists(paste0("data/",rsltFile))){
+  load(paste0("data/",rsltFile))  
 }else{
   cat(NA, NA, NA, NA, sep = ",", file = dataOutFile, append = T)
   cat("\n", file = dataOutFile, append = T)
@@ -52,7 +53,7 @@ n <- length(y)
 nTest <- 5e3
 locsTrain <- locs[1 : nTrain, 1 : dTrain, drop = F]
 locsTest <- locs[(n - nTest + 1) : n, 1 : dTrain, drop = F]
-yTrain <- y[1 : (n - nTest)]
+yTrain <- y[1 : nTrain]
 yTest <- y[(n - nTest + 1) : n]
 ```
 
@@ -60,35 +61,19 @@ Function for computing the test score, assuming the squared relevance parameteri
 ```{r test score, eval = T}
 test_score <- function(theta, idxLocsRel)
 {
-  dRel <- length(idxLocsRel)
-  locsRel <- rbind(locsTrain, locsTest)[, idxLocsRel, drop = F]
-  locsRel0 <- rbind(locsTrain, locsTest)[, 1 : d0, drop = F]
   thetaRel <- theta[c(1, idxLocsRel + 1, dTrain + 2)]
-  locsRelScal <- locsRel %*% 
-    diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
-  yTtl <- c(yTrain, yTest)
-  NNarray <- get.knnx(locsRelScal[1 : nTrain, , drop = F],
-                      locsRelScal[(nTrain + 1) : (nTrain + nTest), , drop = F], 
-                      m)$nn.index
-  NNarray <- cbind(NNarray, (nTrain + 1) : (nTrain + nTest))
-  mus <- rep(NA, nTest)
-  sds <- rep(NA, nTest)
-  diffFrob <- 0
-  for(i in 1 : nTest){
-    NN <- NNarray[i, ]
-    K <- matern25_scaledim_sqrelevance(thetaRel, locsRel[NN, , drop = F])
-    K0 <- matern25_scaledim_sqrelevance(c(sigmasq, rSq[1 : d0], tausq), 
-                                        locsRel0[NN, , drop = F])
-    diagNorm <- diag(1 / sqrt(diag(K)), nrow(K), ncol(K))
-    diffFrob <- diffFrob + sum((diagNorm %*% K %*% diagNorm - K0)^2) / sum(K0^2)
-    L <- t(chol(K))
-    mus[i] <- L[m + 1, 1 : m] %*% 
-      forwardsolve(L[1 : m, 1 : m], yTrain[NN[1 : m]])
-    sds[i] <- L[m+1, m+1]
-  }
-  
-  CRPScore <- mean(crps_norm(y = yTest, mean = mus, sd = sds))
-  return(list(CRPScore = CRPScore, diffFrob = diffFrob / nTest))
+  fit <- list(y = yTrain, locs = locsTrain[, idxLocsRel, drop = F], 
+              covparms = thetaRel, 
+              X = matrix(0, nTrain, 1), 
+              betahat = 0, covfun_name = "matern25_scaledim_sqrelevance", 
+              trend = "zero")
+  cat(system.time(
+    predObj <- predictions_scaled(fit, locsTest[, idxLocsRel, drop = F], m, 
+                                T, 1e3)), "\n")
+  vars <- apply(predObj$samples, 1, var)
+  es <- es_sample(yTest, predObj$samples)
+  CRPScore <- mean(crps_norm(y = yTest, mean = predObj$means, sd = sqrt(vars)))
+  return(list(CRPScore = CRPScore, es = es))
 }
 ```
 
@@ -97,7 +82,7 @@ Measurements
 idxOpt <- max(length(thetaSet) - 1, 1)
 testObj <- test_score(thetaSet[[idxOpt]], idxSet[[idxOpt]] - 1)
 CRPS <- testObj$CRPScore
-distance <- testObj$diffFrob
+es <- testObj$es
 falseP <- (length(idxSet[[idxOpt]]) - 
              length(intersect(idxSet[[idxOpt]], 2 : (d0 + 1)))) / 
   length(idxSet[[idxOpt]])
@@ -106,7 +91,7 @@ falseN <- (d0 - length(intersect(idxSet[[idxOpt]], 2 : (d0 + 1)))) /
 if(is.na(falseN))
   falseN <- 0
 timeVal <- as.numeric(timeObj, units = "secs")
-cat(CRPS, distance, falseP, falseN, timeVal, sep = ",", file = dataOutFile, 
+cat(CRPS, es, falseP, falseN, timeVal, sep = ",", file = dataOutFile, 
     append = T)
 cat("\n", file = dataOutFile, append = T)
 ```
