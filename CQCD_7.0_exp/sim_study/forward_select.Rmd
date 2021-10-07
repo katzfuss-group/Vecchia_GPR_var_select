@@ -28,9 +28,10 @@ if(file.exists("CQCD.R")){
   source("../CQCD.R")
 }
 args <- commandArgs(trailingOnly = T)
-if(length(args) != 3)
+if(length(args) != 4)
   stop("Wrong number of input args\n")
 dataInFile <- args[1]
+fileID <- args[4]
 if(file.exists(dataInFile)){
   load(dataInFile)
 }else{
@@ -193,9 +194,11 @@ timeObj
 
 ```{r save the result, eval = T}
 if(grepl("dep", dataInFile, ignore.case = T)){
-  dataOutFile <- paste0("forward_select_dep_", nTrain, "_", dTrain, ".RData")
+  dataOutFile <- paste0("forward_select_dep_", fileID, "_", nTrain, "_", 
+                        dTrain, ".RData")
 }else
-  dataOutFile <- paste0("forward_select_", nTrain, "_", dTrain, ".RData")
+  dataOutFile <- paste0("forward_select_", fileID, "_", nTrain, "_", 
+                        dTrain, ".RData")
 save(list = c("dTrain", "idxSet", "thetaSet", "scoreSet",
               "nTrain", "timeObj"), 
      file = dataOutFile)
