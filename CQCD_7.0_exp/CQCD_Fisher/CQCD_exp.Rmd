@@ -165,6 +165,6 @@ ggplot(data = dfTheta, aes(x = iter, y = relevance, col = varID)) +
                      breaks = unique(c(sqrt(rsqInit), sqrt(rsq)))) +
   scale_color_manual(breaks = unique(dfThetaTrue$varID),
                      values = c(rainbow(5), rep("grey", d - 5))) +
-  theme(legend.position = "none")
+  theme(legend.position = "none", text = element_text(size = 20))
 ggsave(paste0("CQCD_d_", d, ".pdf"), width = 7, height = 5)
 ```

@@ -202,8 +202,7 @@ for(i in 2 : (d + 1)){
     xlab("batch size") +
     theme(legend.position = "none",
           axis.title.y = element_blank(),
-          axis.text=element_text(size = 12),
-          axis.title=element_text(size = 12))
+          text = element_text(size = 20))
   if(i == 2)
     plt <- plt + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.002))
   if(i == d + 1)

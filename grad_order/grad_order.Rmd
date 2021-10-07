@@ -199,7 +199,7 @@ ggplot(data = dfGrad, aes(x = ID, y = grad, col = col)) +
   ylab("Normalized Gradient") + 
   scale_x_discrete(breaks = paste(1 : 10),
         labels = paste(c(0 : 4, 0 : 4))) +
-  theme(legend.position = "none")
+  theme(legend.position = "none", text = element_text(size = 20))
 ggsave(paste0("gradient_magnitude.pdf"), width = 7, height = 5)
 ```
 
@@ -225,7 +225,7 @@ ggplot(data = dfGrad, aes(x = ID, y = grad, col = col)) +
   ylab("Normalized Gradient") + 
   scale_x_discrete(breaks = paste(1 : 10),
         labels = paste(c(0 : 4, 0 : 4))) +
-  theme(legend.position = "none")
+  theme(legend.position = "none", text = element_text(size = 20))
 ggsave(paste0("gradient_magnitude_minibat.pdf"), width = 7, height = 5)
 ```
 

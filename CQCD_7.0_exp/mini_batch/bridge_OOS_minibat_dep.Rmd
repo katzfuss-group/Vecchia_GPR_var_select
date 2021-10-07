@@ -384,7 +384,7 @@ ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
                                             to = length(lambdaVec), by = 2)]) +
   scale_color_manual(breaks = unique(dfThetaTrue$varID),
                      values = c(rainbow(5), rep("grey", d - 5))) +
-  theme(legend.position = "none")
+  theme(legend.position = "none", text = element_text(size = 20))
 ggsave(paste0("CQCD_bridge_minibat_dep_", n, "_", d, ".pdf"), 
        width = 7, height = 5)
 ```
