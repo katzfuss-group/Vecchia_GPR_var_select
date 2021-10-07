@@ -101,7 +101,7 @@ cat("\n", file = dataOutFile, append = T)
 
 Read data from `table.csv` and build dataframe
 ```{r read data, eval = F}
-meaVec <- c("CRPS", "Dist", "FPos", "FNeg", "Time")
+meaVec <- c("CRPS", "ES", "FPos", "FNeg", "Time")
 depVec <- c("I", "D")
 mtdVec <- c("REG", "Fisher", "FWD", "PGPR")
 nVec <- c(500, 5000, 25000)
@@ -146,7 +146,7 @@ library(scales)
 library(reshape)
 library(patchwork)
 rm(pltTtl)
-for(mea in c("CRPS", "Dist", "FPos", "Time")) # row
+for(mea in c("CRPS", "ES", "FPos", "Time")) # row
   for(dep in c("I", "D"))
     for(dTmp in dVec){
       dfSub <- subset(df, measurement == mea & dependence == dep & d == dTmp)
@@ -154,7 +154,12 @@ for(mea in c("CRPS", "Dist", "FPos", "Time")) # row
                     aes(x = n, y = val, col = mtd, shape = mtd, group = mtd)) +
         geom_point(size = 3) + 
         geom_line() +
-        theme(text = element_text(size = 20), legend.title = element_blank())
+        theme(text = element_text(size = 20), legend.title = element_blank(),
+              legend.key.height = unit(3, 'cm'))
+      if(mea == "CRPS")
+        plt <- plt + ggtitle(paste0(dTmp,  " ",
+                                    switch(which(dep == c("I", "D")), 
+                                           "ind", "dep"), " pred"))
       if(dep != "I" | dTmp != dVec[1]){
         plt <- plt + theme(axis.title.y = element_blank())
       }else
@@ -170,7 +175,7 @@ for(mea in c("CRPS", "Dist", "FPos", "Time")) # row
         pltTtl <- plt
     }
 pltTtl + plot_layout(ncol = 4, guides = "collect")
-ggsave("tmp.pdf", height = 10, width = 14)
+ggsave("sim_result.pdf", height = 10, width = 14)
 ```
 
 ```{r plot time measurements, eval = F}
