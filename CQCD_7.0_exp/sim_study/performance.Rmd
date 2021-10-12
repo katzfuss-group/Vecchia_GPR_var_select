@@ -111,24 +111,36 @@ depNum <- length(depVec)
 mtdNum <- length(mtdVec)
 nNum <- length(nVec)
 dNum <- length(dVec)
-tbl <- read.csv("table.csv", header = F)
-dfMat <- matrix(NA, meaNum * depNum * mtdNum * nNum * dNum, 6)
 
-idx <- 1
-idx2 <- 1
-for(n in nVec)
-  for(d in dVec)
-    for(imtd in 1 : mtdNum){
-      dfMat[idx : (idx + 2 * meaNum - 1), 1] <- n
-      dfMat[idx : (idx + 2 * meaNum - 1), 2] <- d
-      dfMat[idx : (idx + 2 * meaNum - 1), 3] <- imtd
-      dfMat[idx : (idx + 2 * meaNum - 1), 4] <- c(rep(1, meaNum), 
-                                                  rep(2, meaNum)) # dependency
-      dfMat[idx : (idx + 2 * meaNum - 1), 5] <- rep(1 : meaNum, 2) # measurement
-      dfMat[idx : (idx + 2 * meaNum - 1), 6] <- c(t(tbl[c(idx2, idx2 + 1), ]))
-      idx <- idx + 2 * meaNum
-      idx2 <- idx2 + 2
-    }
+rm(dfMat)
+nrep <- 5
+for(irep in 1 : nrep){
+  idx <- 1
+  idx2 <- 1
+  tbl <- read.csv(paste0("table_", irep, ".csv"), header = F)
+  dfMatTmp <- matrix(NA, meaNum * depNum * mtdNum * nNum * dNum, 6)
+  for(n in nVec)
+    for(d in dVec)
+      for(imtd in 1 : mtdNum){
+        dfMatTmp[idx : (idx + 2 * meaNum - 1), 1] <- n
+        dfMatTmp[idx : (idx + 2 * meaNum - 1), 2] <- d
+        dfMatTmp[idx : (idx + 2 * meaNum - 1), 3] <- imtd
+        dfMatTmp[idx : (idx + 2 * meaNum - 1), 4] <- c(rep(1, meaNum), 
+                                                    rep(2, meaNum)) # dependency
+        dfMatTmp[idx : (idx + 2 * meaNum - 1), 5] <- 
+          rep(1 : meaNum, 2) # measurement
+        dfMatTmp[idx : (idx + 2 * meaNum - 1), 6] <- 
+          c(t(tbl[c(idx2, idx2 + 1), ]))
+        idx <- idx + 2 * meaNum
+        idx2 <- idx2 + 2
+      }
+  if(exists("dfMat"))
+    dfMat[, 6] <- dfMat[, 6] + dfMatTmp[, 6]
+  else
+    dfMat <- dfMatTmp
+}
+dfMat[, 6] <- dfMat[, 6] / nrep
+
 df <- as.data.frame(dfMat)
 df[, 3] <- mtdVec[df[, 3]]
 df[, 4] <- depVec[df[, 4]]
@@ -146,13 +158,15 @@ library(scales)
 library(reshape)
 library(patchwork)
 rm(pltTtl)
-for(mea in c("CRPS", "ES", "FPos", "Time")) # row
-  for(dep in c("I", "D"))
-    for(dTmp in dVec){
+# for(mea in c("CRPS", "ES", "FPos", "Time")) # row
+for(mea in c("CRPS", "FPos", "Time")) # row
+  for(dTmp in dVec)
+    for(dep in c("I", "D")){
       dfSub <- subset(df, measurement == mea & dependence == dep & d == dTmp)
       plt <- ggplot(data = dfSub, 
                     aes(x = n, y = val, col = mtd, shape = mtd, group = mtd)) +
-        geom_point(size = 3) + 
+        geom_point(size = 5) + 
+        scale_shape(solid = FALSE) +
         geom_line() +
         theme(text = element_text(size = 20), legend.title = element_blank(),
               legend.key.height = unit(3, 'cm'))
@@ -178,18 +192,39 @@ pltTtl + plot_layout(ncol = 4, guides = "collect")
 ggsave("sim_result.pdf", height = 10, width = 14)
 ```
 
-```{r plot time measurements, eval = F}
-dfTime <- df[df$measurement == "Time", ]
-dfTime$n <- paste0("(", dfTime$n, ", ", dfTime$d, ")")
-dfTime$n <- factor(dfTime$n, levels = unique(dfTime$n))
-ggplot(data = dfTime, aes(x = n, y = val, col = mtd, shape = dependence, 
-                         lty = mtd, group = interaction(mtd, dependence))) +
-  geom_point() + 
-  geom_line(alpha = 0.8) +
-  ylab("time (s)") + 
-  xlab("(n, d)") +
-  scale_y_continuous(trans = pseudo_log_trans(sigma = 100), 
-                     breaks = c(50, 100, 200, 500, 1e3, 5e3, 1e4, 4e4)) 
-ggsave("sim_time.pdf", height = 5, width = 7)
+Try the bar plot.
+```{r try bar plot, eval = F}
+rm(pltTtl)
+for(mea in c("CRPS", "ES", "FPos", "Time")) # row
+# for(mea in c("CRPS", "FPos", "Time")) # row
+  for(dTmp in dVec)
+    for(dep in c("I", "D")){
+      dfSub <- subset(df, measurement == mea & dependence == dep & d == dTmp)
+      plt <- ggplot(data = dfSub, 
+                    aes(x = n, y = val)) +
+        geom_bar(position="dodge", stat="identity", mapping = aes(fill = mtd)) + 
+        theme(text = element_text(size = 20), legend.title = element_blank(),
+              legend.key.height = unit(3, 'cm'))
+      if(mea == "CRPS")
+        plt <- plt + ggtitle(paste0(dTmp,  " ",
+                                    switch(which(dep == c("I", "D")), 
+                                           "ind", "dep"), " pred"))
+      if(dep != "I" | dTmp != dVec[1]){
+        plt <- plt + theme(axis.title.y = element_blank())
+      }else
+        plt <- plt + ylab(mea)
+      if(mea != "Time"){
+        plt <- plt + 
+          theme(axis.title.x = element_blank(), 
+                axis.ticks.x=element_blank(), axis.text.x=element_blank())
+      }
+      if(exists("pltTtl")){
+        pltTtl <- pltTtl + plt
+      }else
+        pltTtl <- plt
+    }
+pltTtl + plot_layout(ncol = 4, guides = "collect")
+ggsave("sim_result_bar.pdf", height = 10, width = 14)
 ```
+
 

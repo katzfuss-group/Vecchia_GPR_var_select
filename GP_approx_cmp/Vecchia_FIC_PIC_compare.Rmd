@@ -136,7 +136,11 @@ for(i in 1 : nrep)
 {
   mMax <- max(mVec)
   simObj <- simulate_func(mMax)
-  write.table(simObj$locs, file = paste0("locs_", i, ".csv"), row.names = F, 
+  locs <- simObj$locs
+  idxInduce <- select_induce(locs, mMax)
+  locs <- rbind(locs[idxInduce, ], locs[- idxInduce, ])
+  
+  write.table(locs, file = paste0("locs_", i, ".csv"), row.names = F, 
             col.names = F, sep = ",")
   write.table(simObj$y, file = paste0("y_", i, ".csv"), row.names = F, 
             col.names = F, sep = ",")
@@ -156,7 +160,7 @@ for(i in 1 : nrep)
   mMax <- max(mVec)
   locs <- as.matrix(read.table(paste0("locs_", i, ".csv"), 
                                header = F, sep = ","))
-  idxInduce <- select_induce(locs, mMax)
+  idxInduce <- 1 : mMax
   locsCp <- locs
   locs <- locs[- idxInduce, ]
   # true density
