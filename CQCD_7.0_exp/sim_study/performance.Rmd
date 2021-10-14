@@ -30,13 +30,13 @@ if(length(args) != 3)
 rsltFile <- args[1]
 dataFile <- args[2]
 dataOutFile <- args[3]
-if(file.exists(paste0("data/",dataFile))){
-  load(paste0("data/",dataFile))
+if(file.exists(paste0("dataIn/",dataFile))){
+  load(paste0("dataIn/",dataFile))
 }else{
   load(paste0("../../sim_study_data_gen/", dataFile))
 }
-if(file.exists(paste0("data/",rsltFile))){
-  load(paste0("data/",rsltFile))  
+if(file.exists(paste0("dataOut/",rsltFile))){
+  load(paste0("dataOut/",rsltFile))  
 }else{
   cat(NA, NA, NA, NA, sep = ",", file = dataOutFile, append = T)
   cat("\n", file = dataOutFile, append = T)
@@ -73,7 +73,9 @@ test_score <- function(theta, idxLocsRel)
   vars <- apply(predObj$samples, 1, var)
   es <- es_sample(yTest, predObj$samples)
   CRPScore <- mean(crps_norm(y = yTest, mean = predObj$means, sd = sqrt(vars)))
-  return(list(CRPScore = CRPScore, es = es))
+  pctgErr <- predObj$means / yTest - 1
+  RMSPE <- sqrt(mean(pctgErr^2))
+  return(list(CRPScore = CRPScore, es = es, RMSPE = RMSPE))
 }
 ```
 
@@ -83,6 +85,7 @@ idxOpt <- max(length(thetaSet) - 1, 1)
 testObj <- test_score(thetaSet[[idxOpt]], idxSet[[idxOpt]] - 1)
 CRPS <- testObj$CRPScore
 es <- testObj$es
+RMSPE <- testObj$RMSPE
 falseP <- (length(idxSet[[idxOpt]]) - 
              length(intersect(idxSet[[idxOpt]], 2 : (d0 + 1)))) / 
   length(idxSet[[idxOpt]])
@@ -91,7 +94,7 @@ falseN <- (d0 - length(intersect(idxSet[[idxOpt]], 2 : (d0 + 1)))) /
 if(is.na(falseN))
   falseN <- 0
 timeVal <- as.numeric(timeObj, units = "secs")
-cat(CRPS, es, falseP, falseN, timeVal, sep = ",", file = dataOutFile, 
+cat(CRPS, es, RMSPE, falseP, falseN, timeVal, sep = ",", file = dataOutFile, 
     append = T)
 cat("\n", file = dataOutFile, append = T)
 ```
@@ -101,7 +104,7 @@ cat("\n", file = dataOutFile, append = T)
 
 Read data from `table.csv` and build dataframe
 ```{r read data, eval = F}
-meaVec <- c("CRPS", "ES", "FPos", "FNeg", "Time")
+meaVec <- c("CRPS", "ES", "RMSPE", "FPos", "FNeg", "Time")
 depVec <- c("I", "D")
 mtdVec <- c("REG", "Fisher", "FWD", "PGPR")
 nVec <- c(500, 5000, 25000)
@@ -158,8 +161,8 @@ library(scales)
 library(reshape)
 library(patchwork)
 rm(pltTtl)
-# for(mea in c("CRPS", "ES", "FPos", "Time")) # row
-for(mea in c("CRPS", "FPos", "Time")) # row
+for(mea in c("CRPS", "RMSPE", "FPos", "Time")) # row
+# for(mea in c("CRPS", "FPos", "Time")) # row
   for(dTmp in dVec)
     for(dep in c("I", "D")){
       dfSub <- subset(df, measurement == mea & dependence == dep & d == dTmp)
@@ -173,7 +176,8 @@ for(mea in c("CRPS", "FPos", "Time")) # row
       if(mea == "CRPS")
         plt <- plt + ggtitle(paste0(dTmp,  " ",
                                     switch(which(dep == c("I", "D")), 
-                                           "ind", "dep"), " pred"))
+                                           "ind", "dep"), " pred")) +
+        scale_y_continuous(trans = pseudo_log_trans(sigma = 0.001))
       if(dep != "I" | dTmp != dVec[1]){
         plt <- plt + theme(axis.title.y = element_blank())
       }else
