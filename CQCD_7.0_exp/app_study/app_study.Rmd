@@ -29,89 +29,68 @@ if(file.exists("CQCD.R")){
 }
 set.seed(123)
 ```
-Divide observations.
-```{r divide GP obs, eval = T}
-if(file.exists("YearPredictionMSD.csv")){
-  dataSet <- read.csv("YearPredictionMSD.csv", header = F)
+Pre-processing.
+```{r divide and normalize, eval = T}
+dataFn <- "Sydney_Data_processed.csv"
+if(file.exists(dataFn)){
+  dataSet <- read.csv(dataFn, header = F)
 }else{
-  dataSet <- read.csv("../../song_year/YearPredictionMSD.csv", header = F)
+  dataSet <- read.csv(paste0("../../data/", dataFn), header = F)
 }
-colnames(dataSet) <- c("year", paste0("var", 1 : (ncol(dataSet) - 1)))
-dataSetTrain <- dataSet[1 : 463715, ]
-dataSetTest <- dataSet[463716 : nrow(dataSet), ]
-yearAft <- 1900
-dataSetTrain <- subset(dataSetTrain, year > yearAft)
-dataSetTest <- subset(dataSetTest, year > yearAft)
-nTrain <- nrow(dataSetTrain)
+
+colIDObj <- 273
+d <- ncol(dataSet) - 1
+tmp <- dataSet[, d + 1]
+dataSet[, d + 1] <- dataSet[, colIDObj]
+dataSet[, colIDObj] <- tmp
+
+dummyIdx <- c()
+if(length(dummyIdx) > 0)
+  dataSet <- dataSet[, - dummyIdx]
+
+constIdx <- which(apply(dataSet, 2, sd) == 0) 
+if(length(constIdx) > 0)
+  dataSet <- dataSet[, - constIdx]
+d <- ncol(dataSet) - 1
+dataSet[, 1 : d] <- 
+  apply(dataSet[, 1 : d], MARGIN = 2, 
+        function(x){x <- (x - mean(x)) / sd(x)})
+
+nTrain <- 5e4
+nTest <- nrow(dataSet) - nTrain
+dataSetTrain <- dataSet[1 : nTrain, ]
+dataSetTest <- dataSet[(nTrain + 1) : nrow(dataSet), ]
+
 nOOS <- min(5000, floor(nTrain / 2))
-nTest <- nrow(dataSetTest)
 dataSetTrainTestIdx <- sample(1 : nTrain, nOOS, F)
 dataSetTrainTest <- dataSetTrain[dataSetTrainTestIdx, , drop = F]
 dataSetTrain <- dataSetTrain[- dataSetTrainTestIdx, , drop = F]
 nTrain <- nTrain - nOOS
-d <- ncol(dataSetTrain) - 1
-rm(dataSet)
-```
 
-Some EDA.
-```{r EDA, eval = F}
-summary(dataSetTrain)
+rm(colIDObj, tmp)
 ```
-
 Normalize the data and run a linear regression with principle components.
 ```{r PCA linear reg, eval = T}
 library(pls)
-dataSetTrainNorm <- dataSetTrain
-dataSetTrainNorm[, 2 : (d + 1)] <- 
-  apply(dataSetTrain[, 2 : (d + 1)], MARGIN = 2, 
-        function(x){x <- (x - mean(x)) / sd(x)})
-dataSetTestNorm <- dataSetTest
-dataSetTestNorm[, 2 : (d + 1)] <- 
-  apply(dataSetTest[, 2 : (d + 1)], MARGIN = 2, 
-        function(x){x <- (x - mean(x)) / sd(x)})
-yearTrainMean <- mean(dataSetTrainNorm$year)
-dataSetTrainNorm$year <- dataSetTrainNorm$year - yearTrainMean
-pcrMdl <- pcr(year ~ ., data = dataSetTrainNorm)
-yPred <- yearTrainMean + 
-  predict(pcrMdl, dataSetTestNorm[, 2 : (d + 1)], ncomp = 20)
-sum((yPred - dataSetTestNorm[, 1])^2)
+colnames(dataSetTrain)[d + 1] <- "obj"
+pcrMdl <- pcr(obj ~ ., data = dataSetTrain, ncomp = 20)
+objPred <- predict(pcrMdl, dataSetTest[, 1 : d], ncomp = 20)
+sum((objPred - dataSetTest[, d + 1])^2)
 ```
-
-Normalize the data with log and run a linear regression with principle components.
-```{r PCA log-linear reg, eval = T}
-library(pls)
-dataSetTrainNorm <- dataSetTrain
-dataSetTrainNorm[, 2 : (d + 1)] <- 
-  apply(dataSetTrainNorm[, 2 : (d + 1)], MARGIN = 2, 
-        function(x){x <- sign(x) * log(1 + abs(x))})
-dataSetTrainNorm[, 2 : (d + 1)] <- 
-  apply(dataSetTrainNorm[, 2 : (d + 1)], MARGIN = 2, 
-        function(x){x <- (x - mean(x)) / sd(x)})
-
-dataSetTestNorm <- dataSetTest
-dataSetTestNorm[, 2 : (d + 1)] <- 
-  apply(dataSetTestNorm[, 2 : (d + 1)], MARGIN = 2, 
-        function(x){x <- sign(x) * log(1 + abs(x))})
-dataSetTestNorm[, 2 : (d + 1)] <- 
-  apply(dataSetTestNorm[, 2 : (d + 1)], MARGIN = 2, 
-        function(x){x <- (x - mean(x)) / sd(x)})
-
-pcrMdl <- pcr(year ~ ., data = dataSetTrainNorm)
-yPred <- predict(pcrMdl, dataSetTestNorm[, 2 : (d + 1)], ncomp = 20)
-sum((yPred - dataSetTestNorm[, 1])^2)
-```
-
+Compare with using just mean
 ```{r compare with using just mean, eval = T}
-var(dataSetTest[, 1]) * nrow(dataSetTest)
+var(dataSetTest[, d + 1]) * nrow(dataSetTest)
 ```
-
-```{r clean big vars, eval = T}
-rm(pcrMdl, dataSetTestNorm, dataSetTrainNorm)
+Demean.
+```{r demean with PCR, eval = F}
+dataSetTrain[, d + 1] <- dataSetTrain[, d + 1] - 
+  predict(pcrMdl, dataSetTrain[, 1 : d], ncomp = 20)
+dataSetTest[, d + 1] <- dataSetTest[, d + 1] - 
+  predict(pcrMdl, dataSetTest[, 1 : d], ncomp = 20)
+dataSetTrainTest[, d + 1] <- dataSetTrainTest[, d + 1] - 
+  predict(pcrMdl, dataSetTrainTest[, 1 : d], ncomp = 20)
+rm(pcrMdl)
 ```
-
-## Thoughts
-
-It seems that linear regression is not helping much, explaining less than $1\%$ of the total variance. Perhaps we can demean `y` and assume a zero mean structure.
 
 ## GPR
 `m` and `k`
@@ -121,20 +100,39 @@ k <- 3
 ```
 Reformat data
 ```{r reformat data, eval = T}
-locsTrain <- dataSetTrain[, 2 : (d + 1)]
-locsOOS <- dataSetTrainTest[, 2 : (d + 1)]
-locsTest <- dataSetTest[, 2 : (d + 1)]
-# normalize range
-locsSD <- apply(rbind(locsTrain, locsOOS, locsTest), 2, sd)
-locsTrain <- t(apply(locsTrain, 1, function(x){x / locsSD}))
-locsOOS <- t(apply(locsOOS, 1, function(x){x / locsSD}))
-locsTest <- t(apply(locsTest, 1, function(x){x / locsSD}))
-# demean y -- year
-meanYTrain <- mean(dataSetTrain[, 1])
-yTrain <- dataSetTrain[, 1] - meanYTrain
-yOOS <- dataSetTrainTest[, 1] - meanYTrain
-yTest <- dataSetTest[, 1] - meanYTrain
+locsTrain <- as.matrix(dataSetTrain[, 1 : d])
+locsOOS <- as.matrix(dataSetTrainTest[, 1 : d])
+locsTest <- as.matrix(dataSetTest[, 1 : d])
+# standardize y
+meanYTrain <- mean(dataSetTrain[, d + 1])
+sdYTrain <- sd(dataSetTrain[, d + 1])
+yTrain <- (dataSetTrain[, d + 1] - meanYTrain) / sdYTrain
+yOOS <- (dataSetTrainTest[, d + 1] - meanYTrain) / sdYTrain
+yTest <- (dataSetTest[, d + 1] - meanYTrain) / sdYTrain
 ```
+Some EDA for `y`
+```{r EDA y, eval = F}
+library(patchwork)
+library(ggplot2)
+hist(c(yTrain, yOOS, yTest))
+```
+Some EDA for `locs`
+```{r EDA locs, eval = F}
+i <- 9
+ggplot(data.frame(x = c(locsTrain[, i], 
+                        locsOOS[, i], locsTest[, i]),
+                  y = c(yTrain, yOOS, yTest)), 
+       aes(x = x, y = y)) + geom_point(size = 1)
+```
+Some EDA for principle components.
+```{r EDA pc, eval = F}
+pcObj <- prcomp(rbind(locsTrain, locsOOS, locsTest), rank. = 20)
+i <- 1
+ggplot(data.frame(x = pcObj$x[, i],
+                  y = c(yTrain, yOOS, yTest)), 
+       aes(x = x, y = y)) + geom_point(size = 1)
+```
+
 Function for computing the approximate OOS score, assuming the squared relevance parameterized Matern25 kernel.
 ```{r OOS score, eval = T}
 OOS_score <- function(theta)
@@ -166,7 +164,7 @@ OOS_score <- function(theta)
 Batch size
 ```{r batch size, eval = T}
 batchSzCQCD <- min(2e3, nTrain)
-batchSzGrad <- min(1e3, nTrain)
+batchSzGrad <- min(2e3, nTrain)
 ```
 Bridge penalty with `gamma = 1/4`
 ```{r penalty, eval = T}
@@ -212,48 +210,49 @@ forward_backward <- function(theta0, idx0, gradObj0)
     yOdr <- yTrain[odr]
     locsRelScalOdr <- locsRelScal[odr, , drop = F]
     locsOdr <- locsTrain[odr, , drop = F]
+    NNarray <- GpGp::find_ordered_nn(locsRelScalOdr, m = m)
     # extract relevant col in locsOdr and lb
     locsOdrRel <- locsOdr[, idxNew - 1, drop = F] 
     lbRel <- lb[c(1, idxNew, 2 + d)] 
     objfun <- function(theta, batchIdx){
-      NNarraySubList <- mclapply(batchIdx, function(i){
-        get.knnx(locsRelScalOdr[1 : i, , drop = F], 
-                 locsRelScalOdr[i, , drop = F], 
-                 min(m + 1, i))$nn.index
-        }) 
-      NNarraySubListApd <- lapply(NNarraySubList, function(x){
-        if(length(x) < m + 1){
-          return(c(x, rep(NA, m + 1 - length(x))))
-        }else
-          return(x)
-        })
-      NNarraySub <- matrix(unlist(NNarraySubListApd), 
-                           length(batchIdx), m + 1, byrow = T)
+      # NNarraySubList <- mclapply(batchIdx, function(i){
+      #   get.knnx(locsRelScalOdr[1 : i, , drop = F], 
+      #            locsRelScalOdr[i, , drop = F], 
+      #            min(m + 1, i))$nn.index
+      #   }, mc.cores = 32) 
+      # NNarraySubListApd <- lapply(NNarraySubList, function(x){
+      #   if(length(x) < m + 1){
+      #     return(c(x, rep(NA, m + 1 - length(x))))
+      #   }else
+      #     return(x)
+      #   })
+      # NNarraySub <- matrix(unlist(NNarraySubListApd), 
+      #                      length(batchIdx), m + 1, byrow = T)
       likObj <- GpGp::vecchia_meanzero_loglik(theta, 
                                               "matern25_scaledim_sqrelevance",
                                               yOdr, locsOdrRel, 
-                                              NNarraySub)
+                                              NNarray[batchIdx, , drop = F])
       likObj$loglik <- likObj$loglik - penfun(theta)
       likObj
     }
     objfun_gdfm <- function(theta, batchIdx){
-      NNarraySubList <- mclapply(batchIdx, function(i){
-        get.knnx(locsRelScalOdr[1 : i, , drop = F], 
-                 locsRelScalOdr[i, , drop = F], 
-                 min(m + 1, i))$nn.index
-        }) 
-      NNarraySubListApd <- lapply(NNarraySubList, function(x){
-        if(length(x) < m + 1){
-          return(c(x, rep(NA, m + 1 - length(x))))
-        }else
-          return(x)
-        })
-      NNarraySub <- matrix(unlist(NNarraySubListApd), 
-                           length(batchIdx), m + 1, byrow = T)
+      # NNarraySubList <- mclapply(batchIdx, function(i){
+      #   get.knnx(locsRelScalOdr[1 : i, , drop = F], 
+      #            locsRelScalOdr[i, , drop = F], 
+      #            min(m + 1, i))$nn.index
+      #   }, mc.cores = 32) 
+      # NNarraySubListApd <- lapply(NNarraySubList, function(x){
+      #   if(length(x) < m + 1){
+      #     return(c(x, rep(NA, m + 1 - length(x))))
+      #   }else
+      #     return(x)
+      #   })
+      # NNarraySub <- matrix(unlist(NNarraySubListApd), 
+      #                      length(batchIdx), m + 1, byrow = T)
       likObj <- GpGp::vecchia_meanzero_loglik_grad_info(theta, 
                                               "matern25_scaledim_sqrelevance",
                                               yOdr, locsOdrRel, 
-                                              NNarraySub)
+                                              NNarray[batchIdx, , drop = F])
       likObj$loglik <- likObj$loglik - penfun(theta)
       likObj$grad <- likObj$grad - dpenfun(theta)
       likObj$info <- likObj$info + ddpenfun(theta)
@@ -353,7 +352,7 @@ Save the result.
 ```{r save the result, eval = T}
 save(list = c("d", "idxSet", "thetaSet", "scoreSet", "lambdaSet", "loglikSet",
               "lambdaVec", "nTrain", "timeObj"), 
-     file = paste0("app_study.RData"))
+     file = sub("\\..*", ".RData", dataFn))
 ```
 
 
