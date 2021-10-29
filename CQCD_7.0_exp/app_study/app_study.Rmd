@@ -31,20 +31,20 @@ set.seed(123)
 ```
 Pre-processing.
 ```{r divide and normalize, eval = T}
-dataFn <- "Sydney_Data_processed.csv"
+dataFn <- "slice_localization_data.csv"
 if(file.exists(dataFn)){
   dataSet <- read.csv(dataFn, header = F)
 }else{
   dataSet <- read.csv(paste0("../../data/", dataFn), header = F)
 }
 
-colIDObj <- 273
+colIDObj <- 386
 d <- ncol(dataSet) - 1
 tmp <- dataSet[, d + 1]
 dataSet[, d + 1] <- dataSet[, colIDObj]
 dataSet[, colIDObj] <- tmp
 
-dummyIdx <- c()
+dummyIdx <- c(1)
 if(length(dummyIdx) > 0)
   dataSet <- dataSet[, - dummyIdx]
 
@@ -56,7 +56,19 @@ dataSet[, 1 : d] <-
   apply(dataSet[, 1 : d], MARGIN = 2, 
         function(x){x <- (x - mean(x)) / sd(x)})
 
-nTrain <- 5e4
+dFake <- 1e3 - d
+if(dFake > 0){
+  predFake <- matrix(rnorm(dFake * nrow(dataSet)), nrow(dataSet), dFake, 
+                     dimnames = list(row = NULL, 
+                                     col = paste0("FV", (d + 1) : (d + dFake))))
+  dataSet <- cbind(dataSet[, 1 : d], predFake, dataSet[, d + 1])
+  d <- d + dFake
+  rm(predFake)
+}
+```
+Split Dataset
+```{r split dataset, eval = T}
+nTrain <- 40177
 nTest <- nrow(dataSet) - nTrain
 dataSetTrain <- dataSet[1 : nTrain, ]
 dataSetTest <- dataSet[(nTrain + 1) : nrow(dataSet), ]
@@ -68,35 +80,6 @@ dataSetTrain <- dataSetTrain[- dataSetTrainTestIdx, , drop = F]
 nTrain <- nTrain - nOOS
 
 rm(colIDObj, tmp)
-```
-Normalize the data and run a linear regression with principle components.
-```{r PCA linear reg, eval = T}
-library(pls)
-colnames(dataSetTrain)[d + 1] <- "obj"
-pcrMdl <- pcr(obj ~ ., data = dataSetTrain, ncomp = 20)
-objPred <- predict(pcrMdl, dataSetTest[, 1 : d], ncomp = 20)
-sum((objPred - dataSetTest[, d + 1])^2)
-```
-Compare with using just mean
-```{r compare with using just mean, eval = T}
-var(dataSetTest[, d + 1]) * nrow(dataSetTest)
-```
-Demean.
-```{r demean with PCR, eval = F}
-dataSetTrain[, d + 1] <- dataSetTrain[, d + 1] - 
-  predict(pcrMdl, dataSetTrain[, 1 : d], ncomp = 20)
-dataSetTest[, d + 1] <- dataSetTest[, d + 1] - 
-  predict(pcrMdl, dataSetTest[, 1 : d], ncomp = 20)
-dataSetTrainTest[, d + 1] <- dataSetTrainTest[, d + 1] - 
-  predict(pcrMdl, dataSetTrainTest[, 1 : d], ncomp = 20)
-rm(pcrMdl)
-```
-
-## GPR
-`m` and `k`
-```{r m and k, eval = T}
-m <- 100
-k <- 3
 ```
 Reformat data
 ```{r reformat data, eval = T}
@@ -112,27 +95,9 @@ yTest <- (dataSetTest[, d + 1] - meanYTrain) / sdYTrain
 ```
 Some EDA for `y`
 ```{r EDA y, eval = F}
-library(patchwork)
 library(ggplot2)
 hist(c(yTrain, yOOS, yTest))
 ```
-Some EDA for `locs`
-```{r EDA locs, eval = F}
-i <- 9
-ggplot(data.frame(x = c(locsTrain[, i], 
-                        locsOOS[, i], locsTest[, i]),
-                  y = c(yTrain, yOOS, yTest)), 
-       aes(x = x, y = y)) + geom_point(size = 1)
-```
-Some EDA for principle components.
-```{r EDA pc, eval = F}
-pcObj <- prcomp(rbind(locsTrain, locsOOS, locsTest), rank. = 20)
-i <- 1
-ggplot(data.frame(x = pcObj$x[, i],
-                  y = c(yTrain, yOOS, yTest)), 
-       aes(x = x, y = y)) + geom_point(size = 1)
-```
-
 Function for computing the approximate OOS score, assuming the squared relevance parameterized Matern25 kernel.
 ```{r OOS score, eval = T}
 OOS_score <- function(theta)
@@ -158,8 +123,50 @@ OOS_score <- function(theta)
       forwardsolve(L[1 : m, 1 : m], yTrain[NN[1 : m]])
     sds[i] <- L[m+1, m+1]
   }
-  mean(crps_norm(y = yOOS, mean = mus, sd = sds))
+  # mean(crps_norm(y = yOOS, mean = mus, sd = sds))
 }
+```
+
+## Using just mean
+```{r compare with using just mean, eval = F}
+var(dataSetTest[, d + 1]) * nrow(dataSetTest)
+```
+
+## PCR.
+```{r PCA linear reg, eval = F}
+library(pls)
+colnames(dataSetTrain)[d + 1] <- "obj"
+pcrMdl <- pcr(obj ~ ., data = dataSetTrain, ncomp = 20)
+PCPred <- predict(pcrMdl, dataSetTest[, 1 : d], ncomp = 20)
+sum((PCPred - dataSetTest[, d + 1])^2)
+```
+
+## Lasso regression.
+```{r Lasso regression, eval = F}
+library(glmnet)
+lassoPath <- glmnet(x = dataSetTrain[, 1 : d], y = dataSetTrain[, d + 1],
+                         alpha = 1, intercept = T)
+plot(lassoPath)
+lassoOOS <- matrix(lassoPath$a0, nrow = nOOS, 
+                   ncol = ncol(lassoPath$beta), byrow = T) +
+  as.matrix(dataSetTrainTest[, 1 : d]) %*% lassoPath$beta
+OOSRMSE <- apply(lassoOOS, MARGIN = 2, function(x){
+  sum((x - dataSetTrainTest[, d + 1])^2)
+  })
+OOSRMSEChg <- c(1, OOSRMSE[2 : length(OOSRMSE)] / 
+                  OOSRMSE[1 : (length(OOSRMSE) - 1)] - 1)
+idxOptLasso <- 50
+lassoPred <- apply(dataSetTest[, 1 : d], 1, 
+                   function(x){sum(x * lassoPath$beta[, idxOptLasso]) +
+                       lassoPath$a0[idxOptLasso]})
+sum((lassoPred - dataSetTest[, d + 1])^2)
+```
+
+## VREG
+`m` and `k`
+```{r m and k, eval = T}
+m <- 100
+k <- 3
 ```
 Batch size
 ```{r batch size, eval = T}
@@ -286,7 +293,7 @@ forward_backward <- function(theta0, idx0, gradObj0)
                                                 NNarray[batchIdx, , drop = F]))
     # break condition
     if((length(idxLocZero) > 0 && all(idxSel %in% idxDesel)) || 
-       length(idx) > 20)
+       length(idx) > 40)
       break
   }
   cat("lambda =", lambda, "idx =", idx, "\n\n")
@@ -355,7 +362,23 @@ save(list = c("d", "idxSet", "thetaSet", "scoreSet", "lambdaSet", "loglikSet",
      file = sub("\\..*", ".RData", dataFn))
 ```
 
+## Check new RMSE
 
+```{r predict at testing locs, eval = T}
+source("vecchia_scaled.R")
+# load(sub("\\..*", ".RData", dataFn))
+idxOpt <- max(length(thetaSet) - 1, 1)
+m <- 100
+fit <- list(y = yTrain, locs = locsTrain[, idxSet[[idxOpt]] - 1, drop = F], 
+              covparms = thetaSet[[idxOpt]][c(1, idxSet[[idxOpt]], d + 2)], 
+              X = matrix(0, nTrain, 1), 
+              betahat = 0, covfun_name = "matern25_scaledim_sqrelevance", 
+              trend = "zero")
+predObj <- predictions_scaled(fit, locsTest[, idxSet[[idxOpt]] - 1, drop = F], 
+                              m, T)
+GPPred <- predObj * sdYTrain + meanYTrain
+sum((GPPred - dataSetTest[, d + 1])^2)
+```
 
 
 

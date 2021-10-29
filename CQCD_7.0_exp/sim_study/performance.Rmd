@@ -161,8 +161,8 @@ library(scales)
 library(reshape)
 library(patchwork)
 rm(pltTtl)
-for(mea in c("CRPS", "RMSE", "FPos", "Time")) # row
-# for(mea in c("CRPS", "FPos", "Time")) # row
+# for(mea in c("CRPS", "RMSE", "FPos", "Time")) # row
+for(mea in c("CRPS", "FPos", "Time")) # row
   for(dTmp in dVec)
     for(dep in c("I", "D")){
       dfSub <- subset(df, measurement == mea & dependence == dep & d == dTmp)
