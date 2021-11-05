@@ -1,0 +1,85 @@
+---
+title: "dataset_prep"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Goal
+
+To prepare different datasets into the desired format.
+
+## Slice Localization
+
+```{r read and rearrange cols, eval = T}
+dataFn <- "slice_localization_data.csv"
+if(file.exists(dataFn)){
+  dataSet <- read.csv(dataFn, header = F)
+}else{
+  dataSet <- read.csv(paste0("../../data/", dataFn), header = F)
+}
+colIDObj <- 386
+d <- ncol(dataSet) - 1
+tmp <- dataSet[, d + 1]
+dataSet[, d + 1] <- dataSet[, colIDObj]
+dataSet[, colIDObj] <- tmp
+```
+
+```{r create fake covariates, eval = T}
+set.seed(123)
+dFake <- 1e3 - d
+if(dFake > 0){
+  predFake <- matrix(rnorm(dFake * nrow(dataSet)), nrow(dataSet), dFake, 
+                     dimnames = list(row = NULL, 
+                                     col = paste0("FV", (d + 1) : (d + dFake))))
+  dataSet <- cbind(dataSet[, 1 : d], predFake, dataSet[, d + 1])
+  d <- d + dFake
+}
+```
+
+```{r standardize the covariates, eval = T}
+sdVec <- apply(dataSet[, 1 : d], MARGIN = 2, sd)
+constColIdx <- which(sdVec == 0)
+dataSet <- dataSet[, - constColIdx]
+d <- d - length(constColIdx)
+# First col is ppl idx
+dataSet[, 2 : d] <- apply(dataSet[, 2 : d], MARGIN = 2, 
+                          function(x){(x - mean(x)) / sd(x)})
+```
+
+```{r split dataset, eval = T}
+set.seed(123)
+pplIdx <- sample(unique(dataSet[, 1]), 
+                 size = round(length(unique(dataSet[, 1])) * 0.75))
+idxTrain <- which(dataSet[, 1] %in% pplIdx)
+idxTest <- setdiff(1 : nrow(dataSet), idxTrain)
+dataSetTrain <- dataSet[idxTrain, , drop = F]
+dataSetTest <- dataSet[idxTest, , drop = F]
+```
+
+```{r remove useless col, eval = T}
+dummyIdx <- c(1)
+if(length(dummyIdx) > 0){
+  dataSetTrain <- dataSetTrain[, - dummyIdx]
+  dataSetTest <- dataSetTest[, - dummyIdx]
+}
+d <- ncol(dataSetTrain) - 1
+```
+
+Write into files, train/test with/without fake predictors
+```{r write into files, eval = T}
+write.table(x = dataSetTrain, row.names = F, sep = ",",
+          col.names = F, file = gsub("\\.", "_train_wf.", dataFn))
+write.table(x = dataSetTrain[, - ((d - dFake + 1) : d), drop = F], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_train.", dataFn))
+write.table(x = dataSetTest, row.names = F, sep = ",",
+          col.names = F, file = gsub("\\.", "_test_wf.", dataFn))
+write.table(x = dataSetTest[, - ((d - dFake + 1) : d), drop = F], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_test.", dataFn))
+```
+
+After pre-processing which screens out constant covairates and people's indices, we are left with $379$ non-fake covariates.
