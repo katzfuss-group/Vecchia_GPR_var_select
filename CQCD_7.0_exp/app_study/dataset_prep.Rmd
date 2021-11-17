@@ -31,21 +31,27 @@ dataSet[, colIDObj] <- tmp
 set.seed(123)
 dFake <- 1e3 - d
 if(dFake > 0){
-  predFake <- matrix(rnorm(dFake * nrow(dataSet)), nrow(dataSet), dFake, 
+  predFakeIndep <- matrix(rnorm(dFake * nrow(dataSet)), nrow(dataSet), dFake, 
                      dimnames = list(row = NULL, 
                                      col = paste0("FV", (d + 1) : (d + dFake))))
-  dataSet <- cbind(dataSet[, 1 : d], predFake, dataSet[, d + 1])
+  dataSetIndep <- cbind(dataSet[, 1 : d], predFakeIndep, dataSet[, d + 1])
+  weightMat <- matrix(runif(d * dFake), d, dFake)
+  predFakeDep <- as.matrix(dataSet[, 1 : d]) %*% weightMat
+  dataSetDep <- cbind(dataSet[, 1 : d], predFakeDep, dataSet[, d + 1])
   d <- d + dFake
 }
 ```
 
 ```{r standardize the covariates, eval = T}
-sdVec <- apply(dataSet[, 1 : d], MARGIN = 2, sd)
+sdVec <- apply(dataSet[, 1 : (d - dFake)], MARGIN = 2, sd)
 constColIdx <- which(sdVec == 0)
-dataSet <- dataSet[, - constColIdx]
+dataSetIndep <- dataSetIndep[, - constColIdx]
+dataSetDep <- dataSetDep[, - constColIdx]
 d <- d - length(constColIdx)
 # First col is ppl idx
-dataSet[, 2 : d] <- apply(dataSet[, 2 : d], MARGIN = 2, 
+dataSetIndep[, 2 : d] <- apply(dataSetIndep[, 2 : d], MARGIN = 2, 
+                          function(x){(x - mean(x)) / sd(x)})
+dataSetDep[, 2 : d] <- apply(dataSetDep[, 2 : d], MARGIN = 2, 
                           function(x){(x - mean(x)) / sd(x)})
 ```
 
@@ -55,31 +61,39 @@ pplIdx <- sample(unique(dataSet[, 1]),
                  size = round(length(unique(dataSet[, 1])) * 0.75))
 idxTrain <- which(dataSet[, 1] %in% pplIdx)
 idxTest <- setdiff(1 : nrow(dataSet), idxTrain)
-dataSetTrain <- dataSet[idxTrain, , drop = F]
-dataSetTest <- dataSet[idxTest, , drop = F]
+dataSetIndepTrain <- dataSetIndep[idxTrain, , drop = F]
+dataSetIndepTest <- dataSetIndep[idxTest, , drop = F]
+dataSetDepTrain <- dataSetDep[idxTrain, , drop = F]
+dataSetDepTest <- dataSetDep[idxTest, , drop = F]
 ```
 
 ```{r remove useless col, eval = T}
 dummyIdx <- c(1)
 if(length(dummyIdx) > 0){
-  dataSetTrain <- dataSetTrain[, - dummyIdx]
-  dataSetTest <- dataSetTest[, - dummyIdx]
+  dataSetIndepTrain <- dataSetIndepTrain[, - dummyIdx]
+  dataSetIndepTest <- dataSetIndepTest[, - dummyIdx]
+  dataSetDepTrain <- dataSetDepTrain[, - dummyIdx]
+  dataSetDepTest <- dataSetDepTest[, - dummyIdx]
 }
-d <- ncol(dataSetTrain) - 1
+d <- d - length(dummyIdx)
 ```
 
 Write into files, train/test with/without fake predictors
 ```{r write into files, eval = T}
-write.table(x = dataSetTrain, row.names = F, sep = ",",
-          col.names = F, file = gsub("\\.", "_train_wf.", dataFn))
-write.table(x = dataSetTrain[, - ((d - dFake + 1) : d), drop = F], 
+write.table(x = dataSetIndepTrain, row.names = F, sep = ",",
+          col.names = F, file = gsub("\\.", "_wf_train.", dataFn))
+write.table(x = dataSetIndepTrain[, - ((d - dFake + 1) : d), drop = F], 
             row.names = F, sep = ",",
             col.names = F, file = gsub("\\.", "_train.", dataFn))
-write.table(x = dataSetTest, row.names = F, sep = ",",
-          col.names = F, file = gsub("\\.", "_test_wf.", dataFn))
-write.table(x = dataSetTest[, - ((d - dFake + 1) : d), drop = F], 
+write.table(x = dataSetIndepTest, row.names = F, sep = ",",
+          col.names = F, file = gsub("\\.", "_wf_test.", dataFn))
+write.table(x = dataSetIndepTest[, - ((d - dFake + 1) : d), drop = F], 
             row.names = F, sep = ",",
             col.names = F, file = gsub("\\.", "_test.", dataFn))
+write.table(x = dataSetDepTrain, row.names = F, sep = ",",
+          col.names = F, file = gsub("\\.", "_wf_dep_train.", dataFn))
+write.table(x = dataSetDepTest, row.names = F, sep = ",",
+          col.names = F, file = gsub("\\.", "_wf_dep_test.", dataFn))
 ```
 
 After pre-processing which screens out constant covairates and people's indices, we are left with $379$ non-fake covariates.
