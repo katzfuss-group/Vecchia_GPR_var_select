@@ -7,14 +7,12 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Method 
-Use OOS score and bridge penalty and stop if any newly added predictor is deselected in the same iteration. Dependent predictors are used.
-
 ## Experiment
 Clean the environment
 ```{r clean environment}
 rm(list = ls())
 ```
+
 Need to install a modified version of the GpGp R package.
 ```{r install the moderated GpGp Pkg}
 devtools::install_github("https://github.com/SamCao1991/GpGp.git")
@@ -30,10 +28,11 @@ if(file.exists("CQCD.R")){
 }
 set.seed(123)
 ```
+
 Simulate GP.
-```{r simulate GP, eval = F}
+```{r simulate GP, eval = T}
 n <- 5e3
-d <- 1000
+d <- 1e3
 m <- 100
 k <- 3
 nOOS <- n
@@ -55,8 +54,9 @@ locs <- locs[1 : n, , drop = F]
 y <- y[1 : n]
 rm(covM, cholM)
 ```
+
 Function for computing the approximate OOS score, assuming the squared relevance parameterized Matern25 kernel.
-```{r OOS score, eval = F}
+```{r OOS score, eval = T}
 OOS_score_loglik <- function(theta)
 {
   idxLocsRel <- which(theta[2 : (d + 1)] > 0)
@@ -120,8 +120,9 @@ OOS_score_CRPS <- function(theta)
   mean(crps_norm(y = yOOS, mean = mus, sd = sds))
 }
 ```
+
 Bridge penalty with `gamma = 1/4`.
-```{r logistic penalty, eval = F}
+```{r logistic penalty, eval = T}
 gamma <- 1/4
 penfun <- function(theta){
   lambda * sum(theta[-c(1, length(theta))]^(gamma))
@@ -137,12 +138,13 @@ ddpenfun <- function(theta){
 }
 ```
 Function for model fitting given lambda.
-```{r fit model for lambda, eval = F}
+```{r fit model for lambda, eval = T}
 forward_backward <- function(theta0, idx0, gradObj0)
 {
   theta <- theta0
   idx <- idx0
   gradObj <- gradObj0
+  OOS <- Inf
   while(T)
   {
     odrDec <- order(gradObj$grad[2 : (d + 1)], decreasing = T)
@@ -198,26 +200,28 @@ forward_backward <- function(theta0, idx0, gradObj0)
       idxNew <- idxNew[-idxLocZero]
       thetaRel <- thetaRel[-(idxLocZero + 1)]
     }
-    theta <- rep(0, length(theta))
-    theta[c(1, idxNew, length(theta))] <- thetaRel
+    thetaNew <- rep(0, length(theta))
+    thetaNew[c(1, idxNew, length(theta))] <- thetaRel
+    OOSNew <- OOS_score_CRPS(thetaNew)
+    if(OOSNew > OOS * 0.99 || length(idx) > 20)
+      break
     idx <- idxNew
+    theta <- thetaNew
+    OOS <- OOSNew
     # compute grad with thetaNew
     gradObj <- 
       GpGp::vecchia_meanzero_loglik_grad_info(theta, 
                                               "matern25_scaledim_sqrelevance",
                                               yOdr, locsOdr, NNarray)
-    # break condition
-    if((length(idxLocZero) > 0 && any(idxSel %in% idxDesel)) || 
-       length(idx) > 20)
-      break
   }
   cat("lambda =", lambda, "idx =", idx, "\n\n")
-  return(list(lambda = lambda, theta = theta, idx = idx, gradObj = gradObj))
+  return(list(lambda = lambda, theta = theta, idx = idx, gradObj = gradObj, 
+              OOS = OOS))
 }
 ```
 
 Storage variabels for plotting later.
-```{r lambda grid, eval = F}
+```{r lambda grid, eval = T}
 # define result collecting vars
 idxSet <- list()
 thetaSet <- list()
@@ -227,8 +231,9 @@ scoreSetCRPS <- list()
 lambdaSet <- list()
 loglikSet <- list()
 ```
+
 Initialization.
-```{r initialization, eval = F}
+```{r initialization, eval = T}
 sigmasqInit <- 0.25
 tausqInit <- 0.01
 theta <- c(sigmasqInit, rep(1e-8, d), tausqInit)
@@ -243,9 +248,10 @@ gradObj <- vecchia_meanzero_loglik_grad_info(theta,
                                             yOdr, locsOdr, NNarray)
 lb[which.max(gradObj$grad[2 : (d + 1)]) + 1] <- 2e-4
 ```
+
 Loop over lambda.
-```{r loop over lambda, eval = F}
-lambdaVec <- rev(c(0, 2^(seq(from = log2(0.125), to = log2(5000), by = 1))))
+```{r loop over lambda, eval = T}
+lambdaVec <- rev(c(0, 2^(seq(from = log2(0.125), to = log2(1000), by = 1))))
 niter <- length(lambdaVec)
 for(i in 1 : niter)
 {
@@ -265,10 +271,14 @@ for(i in 1 : niter)
   scoreSetCRPS[[i]] <- OOS_score_CRPS(optObj$theta)
   lambdaSet[[i]] <- lambda
   loglikSet[[i]] <- optObj$gradObj$loglik
+  # Reset the variance and nugget parameter
+  theta[1] <- sigmasqInit
+  theta[length(theta)] <- tausqInit
 }
 ```
 
-```{r save the result, eval = F}
+Save the result.
+```{r save the result, eval = T}
 save(list = c("d", "idxSet", "thetaSet", "scoreSetLoglik", "scoreSetRMSE",
               "scoreSetCRPS", "lambdaSet", "loglikSet",
               "lambdaVec", "n"), 
@@ -276,29 +286,26 @@ save(list = c("d", "idxSet", "thetaSet", "scoreSetLoglik", "scoreSetRMSE",
 ```
 
 ## Plot
-```{r load data, eval = T}
+```{r load data, eval = F}
 load("bridge_OOS_dep_5000_1000.RData")
 ```
 
 Load libraries for plotting.
-```{r lib for plotting, eval = T}
+```{r lib for plotting, eval = F}
 library(ggplot2)
 library(RColorBrewer)
 library(scales)
 library(reshape)
 ```
 Build dataframe for plotting theta.
-```{r df theta, eval = T}
-firstIdx <- max(which(sapply(thetaSet, 
-                             function(x){sum(x[2 : (d + 1)]) > 1e-2}))[1] - 1, 
-                1)
+```{r df theta, eval = F}
 d <- length(thetaSet[[1]]) - 2
-dfTheta <- matrix(NA, length(idxSet) - firstIdx + 1, d + 1)
+dfTheta <- matrix(NA, length(idxSet), d + 1)
 colnames(dfTheta) <- c("lambda", paste0("var", 1 : d))
-for(i in firstIdx : length(idxSet))
+for(i in 1 : length(idxSet))
 {
-  dfTheta[i - firstIdx + 1, 1] <- lambdaSet[[i]]
-  dfTheta[i - firstIdx + 1, 2 : (d + 1)] <- sqrt(thetaSet[[i]][2 : (d + 1)])
+  dfTheta[i, 1] <- lambdaSet[[i]]
+  dfTheta[i, 2 : (d + 1)] <- sqrt(thetaSet[[i]][2 : (d + 1)])
 }
 dfTheta <- as.data.frame(dfTheta)
 dfTheta <- melt(dfTheta, id = c(1))
@@ -310,13 +317,13 @@ dfThetaTrue <- data.frame("varID" = paste0("var", 1 : d),
 ```
 
 CRPS score.
-```{r plot CRPS score, eval = T}
-dfScore <- matrix(NA, length(idxSet) - firstIdx + 1, 2)
+```{r plot CRPS score, eval = F}
+dfScore <- matrix(NA, length(idxSet), 2)
 colnames(dfScore) <- c("lambda", "score")
-for(i in firstIdx : length(idxSet))
+for(i in 1 : length(idxSet))
 {
-  dfScore[i - firstIdx + 1, 1] <- lambdaSet[[i]]
-  dfScore[i - firstIdx + 1, 2] <- scoreSetCRPS[[i]]
+  dfScore[i, 1] <- lambdaSet[[i]]
+  dfScore[i, 2] <- scoreSetCRPS[[i]]
 }
 dfScore <- as.data.frame(dfScore)
 
@@ -339,10 +346,10 @@ ggplot(data = dfScoreChg, aes(x = lambda, y = scoreChg)) +
                                             to = length(lambdaVec), by = 2)]) +
   theme(legend.position = "none")
 
-nSelected <- sapply(firstIdx : length(idxSet), function(x){if(x == firstIdx) 
+nSelected <- sapply(1 : length(idxSet), function(x){if(x == 1) 
   length(idxSet[[1]]) else length(setdiff(idxSet[[x]], idxSet[[x - 1]]))})
 lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01 &
-                                nSelected > 0)[1] + firstIdx - 2]
+                                nSelected > 0)[1] - 1]
 
 ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
   geom_line() +
