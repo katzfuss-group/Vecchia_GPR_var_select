@@ -84,8 +84,8 @@ OOS_score <- function(theta)
 ```
 
 ```{r batch size, eval = T}
-batchSzCQCD <- 1e3
-batchSzGrad <- 5e2
+batchSzCQCD <- 128
+batchSzGrad <- 128
 ```
 
 Bridge penalty with `gamma = 1/4`.
@@ -111,6 +111,7 @@ forward_backward <- function(theta0, idx0, gradObj0)
   theta <- theta0
   idx <- idx0
   gradObj <- gradObj0
+  OOS <- Inf
   niterFB <- 0
   niterCQCD <- 0
   timeTtCQCD <- 0
@@ -163,7 +164,7 @@ forward_backward <- function(theta0, idx0, gradObj0)
     }
     timeObj <- system.time(
       optObj <- CQCD_stochastic(objfun, objfun_gdfm, n, batchSzCQCD, thetaRel, 
-                                maxIterOut = 100, maxIterIn = 40, lb = lbRel,
+                                maxIterOut = 500, maxIterIn = 40, lb = lbRel,
                                 arg_check = arg_check_SR))
     niterCQCD <- niterCQCD + optObj$neval
     timeTtCQCD <- timeTtCQCD + timeObj[[3]]
@@ -177,9 +178,14 @@ forward_backward <- function(theta0, idx0, gradObj0)
       idxNew <- idxNew[-idxLocZero]
       thetaRel <- thetaRel[-(idxLocZero + 1)]
     }
-    theta <- rep(0, length(theta))
-    theta[c(1, idxNew, length(theta))] <- thetaRel
+    thetaNew <- rep(0, length(theta))
+    thetaNew[c(1, idxNew, length(theta))] <- thetaRel
+    OOSNew <- OOS_score(thetaNew)
+    if(OOSNew > OOS * 0.99 || length(idx) > 20)
+      break
     idx <- idxNew
+    theta <- thetaNew
+    OOS <- OOSNew
     # compute grad with thetaNew
     batchIdx <- sample(x = 1 : n, size = batchSzGrad, replace = F)
     timeObj <- system.time(
@@ -190,10 +196,6 @@ forward_backward <- function(theta0, idx0, gradObj0)
                                                 NNarray[batchIdx, , drop = F]))
     niterFB <- niterFB + 1
     timeTtGrad <- timeTtGrad + timeObj[[3]]
-    # break condition
-    if((length(idxLocZero) > 0 && all(idxSel %in% idxDesel)) || 
-       length(idx) > 20)
-      break
   }
   cat("#Iter of forward-backward selection is", niterFB, "\n")
   cat("#Iter of CQCD is", niterCQCD, "\n")
@@ -201,7 +203,8 @@ forward_backward <- function(theta0, idx0, gradObj0)
   cat("Time of running CQCD is", timeTtCQCD, "\n")
   cat("Time of finding NN is", timeTtNN, "\n")
   cat("lambda =", lambda, "idx =", idx, "\n\n")
-  return(list(lambda = lambda, theta = theta, idx = idx, gradObj = gradObj))
+  return(list(lambda = lambda, theta = theta, idx = idx, gradObj = gradObj,
+              OOS = OOS))
 }
 ```
 
@@ -267,7 +270,8 @@ lambda_upper <- function(k){
                                             NNarray[batchIdx, , drop = F])
   max(gradObj$grad[2 : (d + 1)], 0)  * batchSzCQCD / batchSzGrad
 }
-lambdaUp <- lambda_upper(3)
+# lambdaUp <- lambda_upper(3)
+lambdaUp <- 1024
 ```
 
 Loop over lambda.
@@ -288,9 +292,14 @@ for(i in 1 : niter)
   # Store results
   idxSet[[i]] <- optObj$idx
   thetaSet[[i]] <- optObj$theta
-  scoreSet[[i]] <- OOS_score(optObj$theta)
+  scoreSet[[i]] <- optObj$OOS
   lambdaSet[[i]] <- lambda
   loglikSet[[i]] <- optObj$gradObj$loglik
+  # OOS score
+  cat("OOS is", scoreSet[[i]], "\n\n")
+  # Reset the variance and nugget parameter
+  theta[1] <- sigmasqInit
+  theta[length(theta)] <- tausqInit
 }
 ```
 
@@ -346,8 +355,8 @@ ggplot(data = dfScore, aes(x = lambda, y = score)) +
                      breaks = lambdaVec[seq(from = 1, 
                                             to = length(lambdaVec), by = 2)]) +
   theme(legend.position = "none")
-ggsave(paste0("CQCD_bridge_minibat_dep_scr_", n, "_", d, ".pdf"), 
-       width = 7, height = 5)
+# ggsave(paste0("CQCD_bridge_minibat_dep_scr_", n, "_", d, ".pdf"), 
+#        width = 7, height = 5)
 
 dfScoreChg <- dfScore
 colnames(dfScoreChg) <- c("lambda", "scoreChg")
@@ -360,14 +369,13 @@ ggplot(data = dfScoreChg, aes(x = lambda, y = scoreChg)) +
                      breaks = lambdaVec[seq(from = 1, 
                                             to = length(lambdaVec), by = 2)]) +
   theme(legend.position = "none")
+# ggsave(paste0("CQCD_bridge_minibat_dep_scrChg_", n, "_", d, ".pdf"), 
+#        width = 7, height = 5)
 
 nSelected <- sapply(firstIdx : length(idxSet), function(x){if(x == firstIdx) 
   length(idxSet[[1]]) else length(setdiff(idxSet[[x]], idxSet[[x - 1]]))})
 lambdaStop <- lambdaVec[which(dfScoreChg$scoreChg < 0.01 &
                                 nSelected > 0)[1] + firstIdx - 2]
-
-ggsave(paste0("CQCD_bridge_minibat_dep_scrChg_", n, "_", d, ".pdf"), 
-       width = 7, height = 5)
 
 ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
   geom_line() +
@@ -379,13 +387,14 @@ ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
   geom_hline(yintercept = 0, size = 0.5) + 
   scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01),
                      breaks = unique(dfThetaTrue$trueVal)) +
-  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.125),
+  scale_x_continuous(trans = pseudo_log_trans(
+    sigma = lambdaSet[[length(lambdaSet) - 1]]),
                      breaks = lambdaVec[seq(from = 1, 
                                             to = length(lambdaVec), by = 2)]) +
   scale_color_manual(breaks = unique(dfThetaTrue$varID),
                      values = c(rainbow(5), rep("grey", d - 5))) +
   theme(legend.position = "none", text = element_text(size = 20))
-ggsave(paste0("CQCD_bridge_minibat_dep_", n, "_", d, ".pdf"), 
+ggsave(paste0("CQCD_bridge_minibat_dep_", n, "_", d, ".pdf"),
        width = 7, height = 5)
 ```
 
