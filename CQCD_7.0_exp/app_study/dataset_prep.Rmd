@@ -37,6 +37,8 @@ if(dFake > 0){
   dataSetIndep <- cbind(dataSet[, 1 : d], predFakeIndep, dataSet[, d + 1])
   weightMat <- matrix(runif(d * dFake), d, dFake)
   predFakeDep <- as.matrix(dataSet[, 1 : d]) %*% weightMat
+  predFakeDep <- apply(predFakeDep, 2, 
+                       function(x){x + rnorm(length(x), sd = sd(x))})
   dataSetDep <- cbind(dataSet[, 1 : d], predFakeDep, dataSet[, d + 1])
   d <- d + dFake
 }
@@ -81,19 +83,589 @@ d <- d - length(dummyIdx)
 Write into files, train/test with/without fake predictors
 ```{r write into files, eval = T}
 write.table(x = dataSetIndepTrain, row.names = F, sep = ",",
-          col.names = F, file = gsub("\\.", "_wf_train.", dataFn))
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "train."), dataFn))
 write.table(x = dataSetIndepTrain[, - ((d - dFake + 1) : d), drop = F], 
             row.names = F, sep = ",",
             col.names = F, file = gsub("\\.", "_train.", dataFn))
 write.table(x = dataSetIndepTest, row.names = F, sep = ",",
-          col.names = F, file = gsub("\\.", "_wf_test.", dataFn))
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "test."), dataFn))
 write.table(x = dataSetIndepTest[, - ((d - dFake + 1) : d), drop = F], 
             row.names = F, sep = ",",
             col.names = F, file = gsub("\\.", "_test.", dataFn))
 write.table(x = dataSetDepTrain, row.names = F, sep = ",",
-          col.names = F, file = gsub("\\.", "_wf_dep_train.", dataFn))
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "dep_train."), dataFn))
 write.table(x = dataSetDepTest, row.names = F, sep = ",",
-          col.names = F, file = gsub("\\.", "_wf_dep_test.", dataFn))
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "dep_test."), dataFn))
 ```
 
 After pre-processing which screens out constant covairates and people's indices, we are left with $379$ non-fake covariates.
+
+## Blog Data
+
+```{r read and rearrange cols blog data, eval = T}
+dataDir <- "../../data/BlogFeedback/"
+fnVec <- list.files(dataDir)
+dataSetTest <- data.frame()
+dataSetTrain <- data.frame()
+for(fn in fnVec){
+  fn <- paste0(dataDir, fn)
+  if(grepl("test", fn, T)){
+    dataSetTest <- rbind(dataSetTest, read.csv(fn, header = F))
+  }else if(grepl("train", fn, T)){
+    dataSetTrain <- rbind(dataSetTrain, read.csv(fn, header = F))
+  }
+}
+nTrain <- nrow(dataSetTrain)
+nTest <- nrow(dataSetTest)
+dataSet <- rbind(dataSetTrain, dataSetTest)
+d <- ncol(dataSet) - 1
+y <- dataSet[, d + 1]
+X <- as.matrix(dataSet[, 1 : d])
+rm(dataSet, dataSetTrain, dataSetTest)
+```
+
+Modify the weekday features. In the original data, they are stored with one-hot encoding. Now, the 7 features will be combined into 1, i.e., weekday = 0, weekend = 1.
+```{r modify weekday blog data, eval = T}
+weekday1 <- apply(X[, 268 : 269], 1, sum)
+weekday2 <- apply(X[, 275 : 276], 1, sum)
+X <- X[, -(263 : 276)]
+X <- cbind(X, weekday1, weekday2)
+d <- ncol(X)
+n <- nrow(X)
+```
+
+Some EDA on the distribution of `y`.
+```{r EDA on y blog data, eval = F}
+hist(y)
+hist(log(1 + y))
+hist(log(1 + y)[y != 0])
+```
+Using the original scale should be infeasible, whereas the log-scale probably works. 
+
+Transform `y`
+```{r trans y blog data, eval = T}
+y <- log(1 + y)
+```
+
+Create fake covariates.
+```{r fake covariates for blog data, eval = T}
+set.seed(123)
+dFake <- 1e3 - d
+if(dFake > 0){
+  XFkIndep <- matrix(rnorm(dFake * n), n, dFake)
+  weightMat <- matrix(runif(d * dFake), d, dFake)
+  XFkDep <- X %*% weightMat 
+  XFkDep <- apply(XFkDep, 2, 
+                  function(x){x + rnorm(length(x), sd = sd(x))})
+  d <- d + dFake
+}
+```
+
+Standardize covariates.
+```{r standardize the covariates blog data, eval = T}
+constColIdx <- which(apply(X, 2, sd) == 0)
+X <- X[, -constColIdx]
+d <- d - length(constColIdx)
+X <- apply(X, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkIndep <- apply(XFkIndep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkDep <- apply(XFkDep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+```
+
+Write into files, train/test with/without fake predictors
+```{r write into files, eval = T}
+dataFn <- "blogData.csv"
+write.table(x = cbind(X, XFkIndep, y)[1 : nTrain, ], row.names = F, sep = ",",
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "train."), dataFn))
+write.table(x = cbind(X, y)[1 : nTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_train.", dataFn))
+write.table(x = cbind(X, XFkIndep, y)[(1 + nTrain) : (nTrain + nTest), ],
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "test."), dataFn))
+write.table(x = cbind(X, y)[(1 + nTrain) : (nTrain + nTest), ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_test.", dataFn))
+write.table(x = cbind(X, XFkDep, y)[1 : nTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_train."), dataFn))
+write.table(x = cbind(X, XFkDep, y)[(1 + nTrain) : (nTrain + nTest), ],
+            row.names = F, sep = ",", col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_test."), dataFn))
+```
+
+Create another dataset where `y = 0` is taken out.
+```{r tailor the blog dataset, eval = T}
+idxTrain <- intersect(which(y > 0), 1 : nTrain)
+idxTest <- intersect(which(y > 0), (1 + nTrain) : (nTrain + nTest))
+dataFn <- "blogData_wout_zero.csv"
+write.table(x = cbind(X, XFkIndep, y)[idxTrain, ], row.names = F, sep = ",",
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "train."), dataFn))
+write.table(x = cbind(X, y)[idxTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_train.", dataFn))
+write.table(x = cbind(X, XFkIndep, y)[idxTest, ],
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "test."), dataFn))
+write.table(x = cbind(X, y)[idxTest, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_test.", dataFn))
+write.table(x = cbind(X, XFkDep, y)[idxTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_train."), dataFn))
+write.table(x = cbind(X, XFkDep, y)[idxTest, ],
+            row.names = F, sep = ",", col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_test."), dataFn))
+```
+
+## Superconduct
+
+```{r read and rearrange cols, eval = T}
+dataFn <- "superconduct.csv"
+if(file.exists(dataFn)){
+  dataSet <- read.csv(dataFn, header = T)
+}else{
+  dataSet <- read.csv(paste0("../../data/", dataFn), header = T)
+}
+colIDObj <- ncol(dataSet)
+d <- ncol(dataSet) - 1
+y <- dataSet[, 82]
+X <- as.matrix(dataSet[, 1 : d])
+n <- length(y)
+```
+
+Some EDA on the distribution of `y`.
+```{r EDA on y, eval = F}
+hist(y)
+hist(log(y))
+hist(log(1 + y))
+```
+
+Transform `y`
+```{r trans y, eval = T}
+y <- log(1 + y)
+```
+
+Create fake covariates.
+```{r fake covariates, eval = T}
+set.seed(123)
+dFake <- 1e3 - d
+if(dFake > 0){
+  XFkIndep <- matrix(rnorm(dFake * n), n, dFake)
+  weightMat <- matrix(runif(d * dFake), d, dFake)
+  XFkDep <- X %*% weightMat 
+  XFkDep <- apply(XFkDep, 2, 
+                  function(x){x + rnorm(length(x), sd = sd(x))})
+  d <- d + dFake
+}
+```
+
+Standardize covariates.
+```{r standardize the covariates, eval = T}
+constColIdx <- which(apply(X, 2, sd) == 0)
+if(length(constColIdx) > 0){
+  X <- X[, -constColIdx]
+  d <- d - length(constColIdx)
+}
+X <- apply(X, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkIndep <- apply(XFkIndep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkDep <- apply(XFkDep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+```
+
+Decide `nTrain` and `nTest`
+```{r nTrain and nTest, eval = T}
+set.seed(123)
+nTest <- 4263
+nTrain <- n - nTest
+idxTrain <- sample(1 : n, nTrain, replace = F)
+idxTest <- setdiff(1 : n, idxTrain)
+```
+
+Write into files, train/test with/without fake predictors
+```{r write into files, eval = T}
+write.table(x = cbind(X, XFkIndep, y)[idxTrain, ], row.names = F, sep = ",",
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "train."), dataFn))
+write.table(x = cbind(X, y)[idxTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_train.", dataFn))
+write.table(x = cbind(X, XFkIndep, y)[idxTest, ],
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "test."), dataFn))
+write.table(x = cbind(X, y)[idxTest, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_test.", dataFn))
+write.table(x = cbind(X, XFkDep, y)[idxTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_train."), dataFn))
+write.table(x = cbind(X, XFkDep, y)[idxTest, ],
+            row.names = F, sep = ",", col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_test."), dataFn))
+```
+
+## Wave Energy Sydney
+
+```{r read and rearrange cols, eval = T}
+dataFn <- "Sydney_Data.csv"
+if(file.exists(dataFn)){
+  dataSet <- read.csv(dataFn, header = T)
+}else{
+  dataSet <- read.csv(paste0("../../data/", dataFn), header = T)
+}
+colIDObj <- ncol(dataSet)
+d <- ncol(dataSet) - 1
+y <- dataSet[, d + 1]
+X <- as.matrix(dataSet[, 1 : d])
+n <- length(y)
+```
+
+Some EDA on the distribution of `y`.
+```{r EDA on y blog data, eval = F}
+hist(y)
+```
+
+Create fake covariates.
+```{r fake covariates, eval = T}
+set.seed(123)
+dFake <- 1e3 - d
+if(dFake > 0){
+  XFkIndep <- matrix(rnorm(dFake * n), n, dFake)
+  weightMat <- matrix(runif(d * dFake), d, dFake)
+  XFkDep <- X %*% weightMat 
+  XFkDep <- apply(XFkDep, 2, 
+                  function(x){x + rnorm(length(x), sd = sd(x))})
+  d <- d + dFake
+}
+```
+
+Standardize covariates.
+```{r standardize the covariates, eval = T}
+constColIdx <- which(apply(X, 2, sd) == 0)
+if(length(constColIdx) > 0){
+  X <- X[, -constColIdx]
+  d <- d - length(constColIdx)
+}
+X <- apply(X, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkIndep <- apply(XFkIndep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkDep <- apply(XFkDep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+```
+
+Decide `nTrain` and `nTest`
+```{r nTrain and nTest, eval = T}
+set.seed(123)
+nTest <- round(n * 0.25)
+nTrain <- n - nTest
+idxTrain <- sample(1 : n, nTrain, replace = F)
+idxTest <- setdiff(1 : n, idxTrain)
+```
+
+Write into files, train/test with/without fake predictors
+```{r write into files, eval = T}
+write.table(x = cbind(X, XFkIndep, y)[idxTrain, ], row.names = F, sep = ",",
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "train."), dataFn))
+write.table(x = cbind(X, y)[idxTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_train.", dataFn))
+write.table(x = cbind(X, XFkIndep, y)[idxTest, ],
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "test."), dataFn))
+write.table(x = cbind(X, y)[idxTest, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_test.", dataFn))
+write.table(x = cbind(X, XFkDep, y)[idxTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_train."), dataFn))
+write.table(x = cbind(X, XFkDep, y)[idxTest, ],
+            row.names = F, sep = ",", col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_test."), dataFn))
+```
+
+## Wave Energy All
+
+```{r read and rearrange cols, eval = T}
+dataDir <- "../../data/WECs_DataSet/"
+fnVec <- list.files(dataDir)
+dataSet <- data.frame()
+for(fn in fnVec){
+  fn <- paste0(dataDir, fn)
+  dataSet <- rbind(dataSet, read.csv(fn, header = F))
+}
+d <- ncol(dataSet) - 1
+y <- dataSet[, d + 1]
+X <- as.matrix(dataSet[, 1 : d])
+n <- nrow(X)
+rm(dataSet)
+```
+
+Some EDA on the distribution of `y`.
+```{r EDA on y blog data, eval = F}
+hist(y)
+```
+
+Create fake covariates.
+```{r fake covariates, eval = T}
+set.seed(123)
+dFake <- 1e2 - d
+if(dFake > 0){
+  XFkIndep <- matrix(rnorm(dFake * n), n, dFake)
+  weightMat <- matrix(runif(d * dFake), d, dFake)
+  XFkDep <- X %*% weightMat 
+  XFkDep <- apply(XFkDep, 2, 
+                  function(x){x + rnorm(length(x), sd = sd(x))})
+  d <- d + dFake
+}
+```
+
+Standardize covariates.
+```{r standardize the covariates, eval = T}
+constColIdx <- which(apply(X, 2, sd) == 0)
+if(length(constColIdx) > 0){
+  X <- X[, -constColIdx]
+  d <- d - length(constColIdx)
+}
+X <- apply(X, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkIndep <- apply(XFkIndep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkDep <- apply(XFkDep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+```
+
+Decide `nTrain` and `nTest`
+```{r nTrain and nTest, eval = T}
+set.seed(123)
+nTest <- round(n * 0.25)
+nTrain <- n - nTest
+idxTrain <- sample(1 : n, nTrain, replace = F)
+idxTest <- setdiff(1 : n, idxTrain)
+```
+
+Write into files, train/test with/without fake predictors
+```{r write into files, eval = T}
+dataFn <- "WEC_Data.csv"
+write.table(x = cbind(X, XFkIndep, y)[idxTrain, ], row.names = F, sep = ",",
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "train."), dataFn))
+write.table(x = cbind(X, y)[idxTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_train.", dataFn))
+write.table(x = cbind(X, XFkIndep, y)[idxTest, ],
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "test."), dataFn))
+write.table(x = cbind(X, y)[idxTest, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_test.", dataFn))
+write.table(x = cbind(X, XFkDep, y)[idxTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_train."), dataFn))
+write.table(x = cbind(X, XFkDep, y)[idxTest, ],
+            row.names = F, sep = ",", col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_test."), dataFn))
+```
+
+
+## Online News Popularity Data Set
+
+```{r read and rearrange cols, eval = T}
+dataFn <- "OnlineNewsPopularity.csv"
+if(file.exists(dataFn)){
+  dataSet <- read.csv(dataFn, header = T)
+}else{
+  dataSet <- read.csv(paste0("../../data/", dataFn), header = T)
+}
+dataSet <- dataSet[, -c(1 : 2)]
+colIDObj <- ncol(dataSet)
+d <- ncol(dataSet) - 1
+y <- dataSet[, d + 1]
+X <- as.matrix(dataSet[, 1 : d])
+n <- length(y)
+```
+
+Some EDA on the distribution of `y`.
+```{r EDA on y, eval = F}
+hist(y)
+hist(log(y))
+```
+Using the original scale should be infeasible, whereas the log-scale probably works. 
+
+Transform `y`
+```{r trans y, eval = T}
+y <- log(y)
+```
+
+Create fake covariates.
+```{r fake covariates for, eval = T}
+set.seed(123)
+dFake <- 1e3 - d
+if(dFake > 0){
+  XFkIndep <- matrix(rnorm(dFake * n), n, dFake)
+  weightMat <- matrix(runif(d * dFake), d, dFake)
+  XFkDep <- X %*% weightMat 
+  XFkDep <- apply(XFkDep, 2, 
+                  function(x){x + rnorm(length(x), sd = sd(x))})
+  d <- d + dFake
+}
+```
+
+Standardize covariates.
+```{r standardize the covariates, eval = T}
+constColIdx <- which(apply(X, 2, sd) == 0)
+if(length(constColIdx) > 0){
+  X <- X[, -constColIdx]
+  d <- d - length(constColIdx)
+}
+X <- apply(X, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkIndep <- apply(XFkIndep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkDep <- apply(XFkDep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+```
+
+Decide `nTrain` and `nTest`
+```{r nTrain and nTest, eval = T}
+set.seed(123)
+nTest <- round(n * 0.25)
+nTrain <- n - nTest
+idxTrain <- sample(1 : n, nTrain, replace = F)
+idxTest <- setdiff(1 : n, idxTrain)
+```
+
+Write into files, train/test with/without fake predictors
+```{r write into files, eval = T}
+write.table(x = cbind(X, XFkIndep, y)[1 : nTrain, ], row.names = F, sep = ",",
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "train."), dataFn))
+write.table(x = cbind(X, y)[1 : nTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_train.", dataFn))
+write.table(x = cbind(X, XFkIndep, y)[(1 + nTrain) : (nTrain + nTest), ],
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "test."), dataFn))
+write.table(x = cbind(X, y)[(1 + nTrain) : (nTrain + nTest), ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_test.", dataFn))
+write.table(x = cbind(X, XFkDep, y)[1 : nTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_train."), dataFn))
+write.table(x = cbind(X, XFkDep, y)[(1 + nTrain) : (nTrain + nTest), ],
+            row.names = F, sep = ",", col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_test."), dataFn))
+```
+
+## UJIndoorLoc
+
+```{r read and rearrange cols, eval = T}
+dataDir <- "../../data/UJIndoorLoc/"
+fnVec <- list.files(dataDir)
+dataSet <- data.frame()
+for(fn in fnVec){
+  fn <- paste0(dataDir, fn)
+  dataSet <- rbind(dataSet, read.csv(fn, header = T))
+}
+d <- ncol(dataSet) - 1
+y <- dataSet[, d + 1]
+X <- as.matrix(dataSet[, 1 : d])
+n <- nrow(X)
+rm(dataSet)
+```
+
+## CASP
+
+```{r read and rearrange cols, eval = T}
+dataFn <- "CASP.csv"
+if(file.exists(dataFn)){
+  dataSet <- read.csv(dataFn, header = T)
+}else{
+  dataSet <- read.csv(paste0("../../data/", dataFn), header = T)
+}
+colIDObj <- ncol(dataSet)
+d <- ncol(dataSet) - 1
+y <- dataSet[, 1]
+X <- as.matrix(dataSet[, 2 : (d + 1)])
+n <- length(y)
+```
+
+Some EDA on the distribution of `y`.
+```{r EDA on y, eval = F}
+hist(y)
+```
+Using the original scale should be infeasible, whereas the log-scale probably works. 
+
+Create fake covariates.
+```{r fake covariates for, eval = T}
+set.seed(123)
+dFake <- 1e3 - d
+if(dFake > 0){
+  XFkIndep <- matrix(rnorm(dFake * n), n, dFake)
+  weightMat <- matrix(runif(d * dFake), d, dFake)
+  XFkDep <- X %*% weightMat 
+  XFkDep <- apply(XFkDep, 2, 
+                  function(x){x + rnorm(length(x), sd = sd(x))})
+  d <- d + dFake
+}
+```
+
+Standardize covariates.
+```{r standardize the covariates, eval = T}
+constColIdx <- which(apply(X, 2, sd) == 0)
+if(length(constColIdx) > 0){
+  X <- X[, -constColIdx]
+  d <- d - length(constColIdx)
+}
+X <- apply(X, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkIndep <- apply(XFkIndep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkDep <- apply(XFkDep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+```
+
+Decide `nTrain` and `nTest`
+```{r nTrain and nTest, eval = T}
+set.seed(123)
+nTest <- round(n * 0.25)
+nTrain <- n - nTest
+idxTrain <- sample(1 : n, nTrain, replace = F)
+idxTest <- setdiff(1 : n, idxTrain)
+```
+
+Write into files, train/test with/without fake predictors
+```{r write into files, eval = T}
+write.table(x = cbind(X, XFkIndep, y)[1 : nTrain, ], row.names = F, sep = ",",
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "train."), dataFn))
+write.table(x = cbind(X, y)[1 : nTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_train.", dataFn))
+write.table(x = cbind(X, XFkIndep, y)[(1 + nTrain) : (nTrain + nTest), ],
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "test."), dataFn))
+write.table(x = cbind(X, y)[(1 + nTrain) : (nTrain + nTest), ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_test.", dataFn))
+write.table(x = cbind(X, XFkDep, y)[1 : nTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_train."), dataFn))
+write.table(x = cbind(X, XFkDep, y)[(1 + nTrain) : (nTrain + nTest), ],
+            row.names = F, sep = ",", col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_test."), dataFn))
+```
+
+
+
+
+
+
+
