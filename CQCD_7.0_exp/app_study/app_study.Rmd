@@ -62,10 +62,16 @@ OOS_score <- function(theta, m)
 
 Dataset name
 ```{r dataset name, eval = T}
-datasetName <- "slice_localization_data"
+# datasetName <- "CASP_f991_dep"
+datasetName <- commandArgs(trailingOnly = T)[1]
+mtdName <- commandArgs(trailingOnly = T)[2]
+setLambda <- F
+if(length(commandArgs(trailingOnly = T)) > 2){
+  setLambda <- T
+  lambdaLo <- as.numeric(commandArgs(trailingOnly = T)[3])
+  lambdaUp <- as.numeric(commandArgs(trailingOnly = T)[4])
+}
 ```
-
-## Analysis without fake predictors
 
 Data construction
 ```{r reformat data, eval = T}
@@ -76,13 +82,17 @@ datasetTrain <- read.table(file = trainsetFn, header = F, sep = ",",
                            row.names = NULL)
 datasetTest <- read.table(file = testsetFn, header = F, sep = ",",
                           row.names = NULL)
-# test
-# datasetTrain <- read.table(file = trainsetFn, header = F, sep = ",",
-#                            row.names = NULL)[1 : 10000, ]
 nTrain <- nrow(datasetTrain)
 nTest <- nrow(datasetTest)
 nOOS <- min(5e3, floor(nTrain / 2))
 d <- ncol(datasetTrain) - 1
+grpFk <- gregexpr("f[0-9]+", datasetName)[[1]]
+if(grpFk > 0){
+  dFk <- as.numeric(substr(datasetName, grpFk + 1,
+                           grpFk + attributes(grpFk)$match.length - 1))
+}else
+  dFk <- 0
+dTrue <- d - dFk
 idxOOS <- sample(1 : nTrain, nOOS, replace = F)
 locsTrain <- as.matrix(datasetTrain[- idxOOS, 1 : d])
 locsOOS <- as.matrix(datasetTrain[idxOOS, 1 : d])
@@ -108,21 +118,24 @@ hist(c(yTrain, yOOS, yTest))
 
 ## Using just mean
 ```{r compare with using just mean, eval = T}
-var(yTest) * nrow(yTest)
+ttlVar <- var(yTest) * length(yTest)
+ttlVar
 ```
 
 ## PCR
 ```{r pcr without fake, eval = F}
+library(pls)
 pcrMdl <- pcr(yTrain ~ locsTrain, ncomp = 20)
 pcrPred <- predict(pcrMdl, locsTest, ncomp = 20)
-sum((pcrPred - yTest)^2) * sdYTrain^2
+sum((pcrPred - yTest)^2) / ttlVar
 rm(pcrMdl)
 ```
 
 ## Lasso regression.
+
 ```{r Lasso regression, eval = F}
 library(glmnet)
-lassoPath <- glmnet(x = locsTrain, y = yTrain,
+lassoPath <- glmnet(x = locsTrain, y = yTrain, 
                          alpha = 1, intercept = T)
 plot(lassoPath)
 lassoOOS <- matrix(lassoPath$a0, nrow = nOOS, 
@@ -133,24 +146,36 @@ OOSRMSE <- apply(lassoOOS, MARGIN = 2, function(x){
   })
 OOSRMSEChg <- c(1, 1 - OOSRMSE[2 : length(OOSRMSE)] / 
                   OOSRMSE[1 : (length(OOSRMSE) - 1)])
-idxOptLasso <- which(OOSRMSEChg < 1e-2)[1] - 1
+# idxOptLasso <- which(OOSRMSEChg < 1e-2)[1] - 1
+idxOptLasso <- which.min(OOSRMSE)
+if(is.na(idxOptLasso))
+  idxOptLasso <- length(OOSRMSE)
 lassoPred <- apply(locsTest, 1, 
                    function(x){sum(x * lassoPath$beta[, idxOptLasso]) +
                        lassoPath$a0[idxOptLasso]})
-sum((lassoPred - yTest)^2) * sdYTrain^2
+sum((lassoPred - yTest)^2) / ttlVar
 sum(lassoPath$beta[, idxOptLasso] > 0)
+sum(which(lassoPath$beta[, idxOptLasso] > 0) > dTrue) / 
+  sum(lassoPath$beta[, idxOptLasso] > 0)
 ```
 
 ## VREG
 ```{r load VREG function, eval = T}
-source("VREG.R")
+source(paste0(mtdName, ".R"))
 set.seed(123)
-VRegRslt <- VReg(m = 100, k = 5, outputFn = paste0(datasetName, "_VREG.RData"))
+if(setLambda){
+  VRegRslt <- VReg(m = 100, k = 5, outputFn = paste0(datasetName, "_",
+                                                   mtdName, ".RData"),
+                   lambdaUp = lambdaUp, lambdaLo = lambdaLo)
+}else{
+  VRegRslt <- VReg(m = 100, k = 5, outputFn = paste0(datasetName, "_",
+                                                   mtdName, ".RData"))
+}
 ```
 
 RMSE
 ```{r predict at testing locs with VREG, eval = T}
-load(paste0(datasetName, "_VREG.RData"))
+load(paste0(datasetName, "_", mtdName, ".RData"))
 idxOpt <- max(length(thetaSet) - 1, 1)
 m <- 100
 fit <- list(y = yTrain, locs = locsTrain[, idxSet[[idxOpt]] - 1, drop = F], 
@@ -161,7 +186,9 @@ fit <- list(y = yTrain, locs = locsTrain[, idxSet[[idxOpt]] - 1, drop = F],
 predObj <- predictions_scaled(fit, locsTest[, idxSet[[idxOpt]] - 1, drop = F], 
                               m, T)
 GPPredVREG <- predObj
-cat("RMSE of VREG:", sum((GPPredVREG - yTest)^2) * sdYTrain^2, "\n")
+cat("RMSE of VREG:", sum((GPPredVREG - yTest)^2) / ttlVar, "\n")
+cat("False postive ratio:", 
+    sum(idxSet[[idxOpt]] - 1 > dTrue) / length(idxSet[[idxOpt]]), "\n")
 ```
 
 ## Forward Selection
@@ -185,7 +212,7 @@ fit <- list(y = yTrain, locs = locsTrain[, idxSet[[idxOpt]] - 1, drop = F],
 predObj <- predictions_scaled(fit, locsTest[, idxSet[[idxOpt]] - 1, drop = F], 
                               m, T)
 GPPredFWD <- predObj
-cat("RMSE of FWD:", sum((GPPredFWD - yTest)^2) * sdYTrain^2, "\n")
+cat("RMSE of FWD:", sum((GPPredFWD - yTest)^2) / ttlVar, "\n")
 ```
 
 
