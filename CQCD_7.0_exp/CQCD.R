@@ -11,10 +11,10 @@
 #' @param arg_check the function for checking parms
 #' @param silent TRUE/FALSE for suppressing output
 CQCD <- function(likfun, likfun_GDFIM, parms0, 
-                 convtolOut = 1e-4, 
-                 convtolIn = 1e-4, maxIterOut = 20, maxIterIn = 40, 
+                 convtolOut = 1e-4, convtolIn = 1e-4, 
+                 cAmij = 1e-4, maxIterOut = 20, maxIterIn = 40, 
                  lb = rep(0, length(parms0)),
-                 arg_check = function(){T}, silent = FALSE)
+                 arg_check = function(...){T}, silent = FALSE)
 {
   if(any(parms0 < lb))
     stop(paste("Initial values for parameters ", which(parms0 < lb), 
@@ -41,7 +41,7 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
     H <- likobj$info
     if(!silent)
     {
-      cat(paste0("Iter ", i - 1, ": \n"))
+      cat(paste0("CQCD iter ", i - 1, ": \n"))
       cat("pars = ",  paste0(round(parms, 4)), "  \n" )
       cat(paste0("obj = ", round(obj, 6), "  \n"))
       cat("\n")
@@ -49,7 +49,7 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
     # coordinate descent
     b <- grad - as.vector(H %*% parms)
     DSCObj <- dsc_lb(H, b, parms, silent, convtolIn, maxIterIn, lb)
-    parmsNew <- bktk_Armijo(parms, obj, grad, DSCObj$parms, 1e-4, 
+    parmsNew <- bktk_Armijo(parms, obj, grad, DSCObj$parms, cAmij, 
                             function(x){- likfun(x)$loglik}, lb, arg_check)
     # if coord descent meets Armijo condition
     if((abs(sum((parmsNew - parms) * grad)) >= convtolOut))
@@ -59,7 +59,7 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
     }
     else # Use lower bounded gradient descent
     {
-      parmsNew <- gd_Armijo(parms, obj, grad, 1e-4, 
+      parmsNew <- gd_Armijo(parms, obj, grad, cAmij, 
                             function(x){- likfun(x)$loglik}, lb, arg_check)
       if(!silent)
         cat("Lower bounded gradient descent is used \n")
@@ -82,7 +82,7 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
   }
   if(!silent)
   {
-    cat(paste0("Iter ", i, ": \n"))
+    cat(paste0("CQCD iter ", i, ": \n"))
     cat("pars = ",  paste0(round(parms, 4)), "  \n" )
     cat(paste0("obj = ", round(obj, 6), "  \n"))
     cat("\n")
@@ -107,10 +107,10 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
 #' @param arg_check the function for checking parms
 #' @param silent TRUE/FALSE for suppressing output
 CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0, 
-                 convtolOut = 1e-4, 
-                 convtolIn = 1e-4, maxIterOut = 20, maxIterIn = 40, 
+                 convtolOut = 1e-4, convtolIn = 1e-4, 
+                 cAmij = 1e-4, maxIterOut = 20, maxIterIn = 40, 
                  lb = rep(0, length(parms0)),
-                 arg_check = function(){T}, silent = FALSE)
+                 arg_check = function(...){T}, silent = FALSE)
 {
   if(any(parms0 < lb))
     stop(paste("Initial values for parameters ", which(parms0 < lb), 
@@ -135,7 +135,7 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     H <- likobj$info
     if(!silent)
     {
-      cat(paste0("Iter ", i - 1, ": \n"))
+      cat(paste0("CQCD iter ", i - 1, ": \n"))
       cat("pars = ",  paste0(round(parms, 4)), "  \n" )
       cat(paste0("obj = ", round(obj, 6), "  \n"))
       cat("\n")
@@ -143,7 +143,7 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     # coordinate descent
     b <- grad - as.vector(H %*% parms)
     DSCObj <- dsc_lb(H, b, parms, silent, convtolIn, maxIterIn, lb)
-    parmsNew <- bktk_Armijo(parms, obj, grad, DSCObj$parms, 1e-4, 
+    parmsNew <- bktk_Armijo(parms, obj, grad, DSCObj$parms, cAmij, 
                             function(x){- likfun(x, batchIdx)$loglik}, 
                             lb, arg_check)
     # if coord descent meets Armijo condition
@@ -154,7 +154,7 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     }
     else # Use lower bounded gradient descent
     {
-      parmsNew <- gd_Armijo(parms, obj, grad, 1e-4, 
+      parmsNew <- gd_Armijo(parms, obj, grad, cAmij, 
                             function(x){- likfun(x, batchIdx)$loglik}, 
                             lb, arg_check)
       if(!silent)
@@ -176,13 +176,13 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
       s <- 0
       scaler <- scaler / 2
       iterCounter <- 0
-      if(!silent)
-        cat("scaler is halved\n")
+      # if(!silent)
+      #   cat("scaler is halved\n")
     }
   }
   if(!silent)
   {
-    cat(paste0("Iter ", i, ": \n"))
+    cat(paste0("CQCD iter ", i, ": \n"))
     cat("pars = ",  paste0(round(parms, 4)), "  \n" )
     cat(paste0("obj = ", round(obj, 6), "  \n"))
     cat("\n")
@@ -208,9 +208,10 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
 #' @param silent TRUE/FALSE for suppressing output
 CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0, 
                                   convtolOut = 1e-4, convtolIn = 1e-4, 
+                                  cAmij = 1e-4,
                                   maxIterOut = 20, maxIterIn = 40, 
                                   lb = rep(0, length(parms0)),
-                                  arg_check = function(){T}, silent = FALSE)
+                                  arg_check = function(...){T}, silent = FALSE)
 {
   if(any(parms0 < lb))
     stop(paste("Initial values for parameters ", which(parms0 < lb), 
@@ -236,7 +237,7 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     H <- likobj$info
     if(!silent)
     {
-      cat(paste0("Iter ", i - 1, ": \n"))
+      cat(paste0("CQCD iter ", i - 1, ": \n"))
       cat("pars = ",  paste0(round(parms, 4)), "  \n" )
       cat(paste0("obj = ", round(obj, 6), "  \n"))
       cat("\n")
@@ -244,7 +245,7 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     # coordinate descent
     b <- grad - as.vector(H %*% parms)
     DSCObj <- dsc_lb(H, b, parms, silent, convtolIn, maxIterIn, lb)
-    parmsNew <- bktk_Armijo(parms, obj, grad, DSCObj$parms, 1e-4, 
+    parmsNew <- bktk_Armijo(parms, obj, grad, DSCObj$parms, cAmij, 
                             function(x){- likfun(x, batchIdx, 
                                                  (parmsAvg * i + x) / (i + 1),
                                                  i + 1)$loglik}, 
@@ -257,7 +258,7 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     }
     else # Use lower bounded gradient descent
     {
-      parmsNew <- gd_Armijo(parms, obj, grad, 1e-4, 
+      parmsNew <- gd_Armijo(parms, obj, grad, cAmij, 
                             function(x){- likfun(x, batchIdx, 
                                                  (parmsAvg * i + x) / (i + 1),
                                                  i + 1)$loglik}, 
@@ -282,13 +283,13 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
       s <- 0
       scaler <- scaler / 2
       iterCounter <- 0
-      if(!silent)
-        cat("scaler is halved\n")
+      # if(!silent)
+      #   cat("scaler is halved\n")
     }
   }
   if(!silent)
   {
-    cat(paste0("Iter ", i, ": \n"))
+    cat(paste0("CQCD iter ", i, ": \n"))
     cat("pars = ",  paste0(round(parms, 4)), "  \n" )
     cat(paste0("obj = ", round(obj, 6), "  \n"))
     cat("\n")
