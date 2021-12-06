@@ -299,6 +299,125 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
               betahat = likobj$betahat))
 }
 
+#' Coordinate descent using the 2nd order approximation of the (penalized) log-likelihood 
+#' 
+#' @param likfun stochastic likelihood function, returns log-likelihood
+#' @param likfun_GDFIM returns stochastic log-likelihood, gradient, and FIM
+#' @param n the number of total observations
+#' @param batchSz batch size
+#' @param parms0 starting values of parameters
+#' @param convtolOut convergence tolerance on step dot grad
+#' @param convtolIn convergence tolerance on the step of one coordinate descent epoch
+#' @param maxIterOut maximum number of 2nd order approximations
+#' @param maxIterIn maximum number of epochs in coordinate descent
+#' @param lb the lower bounds for all parameters
+#' @param avgNum the average window for grad and info
+#' @param arg_check the function for checking parms
+#' @param silent TRUE/FALSE for suppressing output
+CQCD_stochastic_SAG <- function(likfun, likfun_GDFIM, n, batchSz, parms0, 
+                            convtolOut = 1e-4, convtolIn = 1e-4, 
+                            cAmij = 1e-4, maxIterOut = 20, maxIterIn = 40, 
+                            lb = rep(0, length(parms0)), avgNum = 5,
+                            arg_check = function(...){T}, silent = FALSE)
+{
+  if(any(parms0 < lb))
+    stop(paste("Initial values for parameters ", which(parms0 < lb), 
+               "are smaller than their lower bounds. Stopping...  \n"))
+  if(!arg_check(parms0))
+    stop(paste("Argument check for parms0 failed. Stopping... \n"))
+  
+  parms <- parms0
+  likobjLst <- list() 
+  idxRm <- 1
+  for(i in 1 : avgNum){
+    batchIdx <- sample(x = 1 : n, size = batchSz, replace = F)
+    likobjLst[[i]] <- likfun_GDFIM(parms, batchIdx)
+  }
+  get_likobj <- function(likobjLst, avgNum){
+    likobj <- reduce(likobjLst, function(x ,y){list(loglik = x$loglik + y$loglik,
+                                                    grad = x$grad + y$grad,
+                                                    info = x$info + y$info)})
+    likobj$loglik <- likobj$loglik / avgNum
+    likobj$grad <- likobj$grad / avgNum
+    likobj$info <- likobj$info / avgNum
+    likobj
+  }
+  likobj <- get_likobj(likobjLst, avgNum)
+  
+  s <- 0
+  scaler <- 1
+  iterCounter <- 0
+  parmsM1 <- NA
+  parmsM2 <- NA
+  
+  for(i in 1 : maxIterOut)
+  {
+    obj <- - likobj$loglik
+    grad <- - likobj$grad * scaler
+    H <- likobj$info
+    if(!silent)
+    {
+      cat(paste0("CQCD iter ", i - 1, ": \n"))
+      cat("pars = ",  paste0(round(parms, 4)), "  \n" )
+      cat(paste0("obj = ", round(obj, 6), "  \n"))
+      cat("\n")
+    }
+    # coordinate descent
+    b <- grad - as.vector(H %*% parms)
+    DSCObj <- dsc_lb(H, b, parms, silent, convtolIn, maxIterIn, lb)
+    parmsNew <- bktk_Armijo(parms, obj, grad, DSCObj$parms, cAmij, 
+                            function(x){- likfun(x, batchIdx)$loglik}, 
+                            lb, arg_check)
+    # if coord descent meets Armijo condition
+    if((abs(sum((parmsNew - parms) * grad)) >= convtolOut))
+    {
+      if(!silent)
+        cat("Lower bounded coordinate descent with FIM is used \n")
+    }
+    else # Use lower bounded gradient descent
+    {
+      parmsNew <- gd_Armijo(parms, obj, grad, cAmij, 
+                            function(x){- likfun(x, batchIdx)$loglik}, 
+                            lb, arg_check)
+      if(!silent)
+        cat("Lower bounded gradient descent is used \n")
+    }
+    # Stopping condition
+    if((abs(sum((parmsNew - parms) * grad)) < convtolOut))
+      break
+    # Gradients, FIM at the new parms
+    batchIdx <- sample(x = 1 : n, size = batchSz, replace = F)
+    parmsM2 <- parmsM1
+    parmsM1 <- parms
+    parms <- parmsNew
+    iterCounter <- iterCounter + 1
+
+    likobjLst[[idxRm]] <- likfun_GDFIM(parms, batchIdx)
+    idxRm <- (idxRm) %% avgNum + 1
+    likobj <- get_likobj(likobjLst, avgNum)
+    
+    if(i > 1)
+      s <- s + sum((parms - parmsM1) * (parmsM1 - parmsM2))
+    if(s < 0 && iterCounter > 2){
+      s <- 0
+      scaler <- scaler / 2
+      iterCounter <- 0
+      # if(!silent)
+      #   cat("scaler is halved\n")
+    }
+  }
+  if(!silent)
+  {
+    cat(paste0("CQCD iter ", i, ": \n"))
+    cat("pars = ",  paste0(round(parms, 4)), "  \n" )
+    cat(paste0("obj = ", round(obj, 6), "  \n"))
+    cat("\n")
+  }
+  return(list(covparms = parms, loglik = likobj$loglik,
+              grad = likobj$grad, info = likobj$info, neval = i + 1,
+              betahat = likobj$betahat))
+}
+
 #' Coordinate descent for a quadratic function in the positive domain 
 #' 
 #' @param A 2nd order coefficient matrix (\frac{1}{2} x^\top A x)

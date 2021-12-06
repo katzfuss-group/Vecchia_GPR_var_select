@@ -17,6 +17,7 @@ library(mvtnorm)
 library(scoringRules)
 library(GpGp)
 library(FNN)
+library(purrr)
 ```
 
 ## Generate dataset
