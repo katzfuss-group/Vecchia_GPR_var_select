@@ -22,6 +22,7 @@ library(GpGp)
 library(FNN)
 library(parallel)
 library(scoringRules)
+library(purrr)
 if(file.exists("CQCD.R")){
   source("CQCD.R")
 }else{

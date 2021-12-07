@@ -105,11 +105,11 @@ forward_backward <- function(lambda, theta0, idx0, gradObj0, m, k, lb,
               OOS = OOS))
 }
 
-VReg <- function(m = 100, k = 5, outputFn = "VREG.RData"){
-  lambdaUp <- 16
-  lambdaVec <- c(rev(2^(seq(from = log2(1/128), 
-                            to = log2(max(1/128, lambdaUp)), 
-                            by = 1))), 0)
+VReg <- function(m = 100, k = 5, outputFn = "VREG.RData", 
+                 lambdaUp = 16, lambdaLo = 1/128){
+  lambdaVec <- c(rev(2^(seq(from = log2(lambdaLo), 
+                            to = log2(max(lambdaLo, lambdaUp)), 
+                            by = 1))))
   niter <- length(lambdaVec)
   batchSzCQCD <- min(128, nTrain)
   batchSzGrad <- min(128, nTrain)
@@ -141,7 +141,8 @@ VReg <- function(m = 100, k = 5, outputFn = "VREG.RData"){
     cat("i =", i, "lambda =", lambda, "\n")
     # fit model with penalty
     optObj <- forward_backward(lambda, theta, idx, gradObj, m, k, lb, 
-                               arg_check_SR, batchSzCQCD, batchSzGrad)
+                               arg_check_SR, batchSzCQCD, batchSzGrad, 
+                               useSAG = T)
     theta <- optObj$theta
     idx <- optObj$idx
     gradObj <- optObj$gradObj
