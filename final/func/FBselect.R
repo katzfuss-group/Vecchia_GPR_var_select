@@ -70,9 +70,9 @@ fwd_bwd <- function(idx, theta, sr0, locsIn, locsOut, yIn, yOut,
     idx <- idx[sapply(idx, function(i){theta[i + 1] > 0})]
     idxSet[[iter]] <- idx
     thetaSet[[iter]] <- theta
-    scrVec[iter] <- OOS_score(theta = theta, locsTrnIn = locsIn, 
-                             locsTrnOut = locsOut, yTrnIn = yIn, 
-                             yTrnOut = yOut, m = m, covFn = covFn)
+    scrVec[iter] <- OOS_score(theta = theta, locsIn = locsIn, 
+                             locsOut = locsOut, yIn = yIn, 
+                             yOut = yOut, m = m, covFn = covFn)
     if(!silent){
       cat("FB iter =", iter, "\n")
       cat("idx:", idxSet[[iter]], "\n")

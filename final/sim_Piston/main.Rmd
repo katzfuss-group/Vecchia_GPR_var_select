@@ -12,6 +12,7 @@ rm(list = ls())
 ```
 
 ```{r libraries and self-defined funcs}
+library(glmnet)
 source("../func/misc.R", chdir = T)
 source("../func/FBselect.R", chdir = T)
 source("../func/stop_cond.R", chdir = T)
@@ -36,6 +37,8 @@ if(rho != 0){
 }
 if(kernel == "piston" || kernel == "Piston"){
   y <- Pist_gen(locs)
+  y <- y - mean(y)
+  d0 <- 7
 }else{
   stop("Kernel not defined\n")
 }
@@ -56,7 +59,7 @@ lambVecBrdg <- 2^(rev(-10 : 4))
 convCQCD <- 1e-4
 convCCD <- 1e-4
 cAmij <- 1e-4
-maxIterCQCD <- 50
+maxIterCQCD <- 100
 maxIterCCD <- 40
 covFn <- "matern25_scaledim_sqrelevance"
 mini <- T
@@ -76,22 +79,79 @@ pIn = max(1 - 5e3 / n, 0.75)
 rm(spltObj, locs, y)
 ```
 
+```{r output train and test datasets, eval = F}
+dir.create(file.path(".", "data"), showWarnings = FALSE)
+write.table(x = cbind(locsTrn, yTrn), row.names = F, sep = ",", col.names = F, 
+            file = paste0("./data/", tolower(kernel), "_", n, "_", d, "_", rho, 
+                          "_train.csv"))
+write.table(x = cbind(locsTst, yTst), row.names = F, sep = ",", col.names = F, 
+            file = paste0("./data/", tolower(kernel), "_", n, "_", d, "_", rho, 
+                          "_test.csv"))
+```
+
 ## Run optimization
 
-```{r Vecc_path parms est and var select, eval = T}
+```{r Vecc_path parms est and var select, eval = T, echo = F, results = F}
 bgnTime <- Sys.time()
-Vecc_path(var0 = var0, tau0 = tau0, sr0 = sr0, locs = locsTrn, y = yTrn, 
-          m = m, k = k, lambVec = lambVecBrdg, pen_fun = pen_brdg, 
-          dpen_fun = dpen_brdg, ddpen_fun = ddpen_brdg, OOS_score = OOS_crps,
-          stop_con_path = stop_con_OOS1_path, stop_con_fb = stop_con_OOS1_fb, 
-          miniCQCD = miniCQCD, miniGrad = miniGrad, pIn = pIn, spltSeed = 123,
-          convCQCD = convCQCD, convCCD = convCCD, cAmij = cAmij, 
-          maxIterCQCD = maxIterCQCD, maxIterCCD = maxIterCCD, covFn = covFn, 
-          minPosi = minPosi, mini = mini, taper = taper, silent = silent)
+VeccObj <-
+  Vecc_path(
+    var0 = var0,
+    tau0 = tau0,
+    sr0 = sr0,
+    locs = locsTrn,
+    y = yTrn,
+    m = m,
+    k = k,
+    lambVec = lambVecBrdg,
+    pen_fun = pen_brdg,
+    dpen_fun = dpen_brdg,
+    ddpen_fun = ddpen_brdg,
+    OOS_score = OOS_crps,
+    stop_con_path = stop_con_OOS1_path,
+    stop_con_fb = stop_con_OOS1_fb,
+    miniCQCD = miniCQCD,
+    miniGrad = miniGrad,
+    pIn = pIn,
+    spltSeed = 123,
+    convCQCD = convCQCD,
+    convCCD = convCCD,
+    cAmij = cAmij,
+    maxIterCQCD = maxIterCQCD,
+    maxIterCCD = maxIterCCD,
+    covFn = covFn,
+    minPosi = minPosi,
+    mini = mini,
+    taper = taper,
+    silent = silent
+  )
 endTime <- Sys.time()
 timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
 cat("Vecchia solution path used", timeUsed, "seconds\n")
 ```
+
+```{r Vecc_path performance, eval = T}
+VeccScr <- OOS_rmse(VeccObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
+cat("Vecchia solution path RMSE score:", VeccScr, "\n")
+cat("Vecchia solution path FPR:", 
+    length(setdiff(VeccObj$idx, 1 : d0)) / length(VeccObj$idx), "\n")
+```
+
+```{r Lasso parms est and var select, eval = T}
+lassoPath <- glmnet(x = locsTrn, y = yTrn, alpha = 1, intercept = T)
+plot(lassoPath)
+cvLassoObj <- cv.glmnet(x = locsTrn, y = yTrn, alpha = 1, intercept = T)
+predLasso <- predict(object = cvLassoObj, s = cvLassoObj$lambda.min, 
+                     newx = locsTst)
+rmseScrLasso <- sqrt(mean((predLasso - yTst)^2) / var(yTst))
+idxSel <- which(
+  cvLassoObj$glmnet.fit$beta[, cvLassoObj$index["min", "Lambda"]] != 0)
+nSelLasso <- cvLassoObj$nzero[cvLassoObj$index["min", "Lambda"]]
+cat("Lasso solution path RMSE score:", rmseScrLasso, "\n")
+cat("Lasso solution path FPR:", 
+    length(setdiff(idxSel, 1 : d0)) / length(idxSel), "\n")
+```
+
+
 
 
 

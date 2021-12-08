@@ -1,33 +1,31 @@
 library(scoringRules)
 library(FNN)
 
-#' CRPS out-of-sample score function
+#' Make independent predictions at locsOut
 #' 
 #' @param theta covariance parms (var, R/SR/range(s), tau)
-#' @param locsTrnIn in-sample locs
-#' @param locsTrnOut out-sample locs
-#' @param yTrnIn
-#' @param yTrnOut
+#' @param locsIn in-sample locs
+#' @param locsOut out-sample locs
+#' @param yIn
 #' @param m conditioning set size in scaled Vecchia prediction
 #' @param covFn cov kernel name
-OOS_crps <- function(theta, locsTrnIn, locsTrnOut, yTrnIn, yTrnOut, m, 
-                     covFn = "matern25_scaledim_sqrelevance")
+pred_idp <- function(theta, locsIn, locsOut, yIn, m, covFn)
 {
-  nIn <- nrow(locsTrnIn)
-  d <- ncol(locsTrnIn)
-  nOut <- nrow(locsTrnOut)
+  nIn <- nrow(locsIn)
+  d <- ncol(locsIn)
+  nOut <- nrow(locsOut)
   idxLocsRel <- which(theta[2 : (d + 1)] > 0)
   dRel <- length(idxLocsRel)
-  locsTrnInRel <- locsTrnIn[, idxLocsRel, drop = F]
-  locsTrnOutRel <- locsTrnOut[, idxLocsRel, drop = F]
+  locsInRel <- locsIn[, idxLocsRel, drop = F]
+  locsOutRel <- locsOut[, idxLocsRel, drop = F]
   thetaRel <- theta[c(1, idxLocsRel + 1, d + 2)]
-  locsTrnInRelScal <- locsTrnInRel %*% 
+  locsInRelScal <- locsInRel %*% 
     diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
-  locsTrnOutRelScal <- locsTrnOutRel %*% 
+  locsOutRelScal <- locsOutRel %*% 
     diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
-  NNarray <- get.knnx(locsTrnInRelScal, locsTrnOutRelScal, m)$nn.index
+  NNarray <- get.knnx(locsInRelScal, locsOutRelScal, m)$nn.index
   NNarray <- cbind(NNarray, (nIn + 1) : (nIn + nOut))
-  locsRel <- rbind(locsTrnInRel, locsTrnOutRel)
+  locsRel <- rbind(locsInRel, locsOutRel)
   mus <- rep(NA, nOut)
   sds <- rep(NA, nOut)
   for(i in 1 : nOut){
@@ -35,11 +33,44 @@ OOS_crps <- function(theta, locsTrnIn, locsTrnOut, yTrnIn, yTrnOut, m,
     K <- get(covFn)(thetaRel, locsRel[NN, , drop = F])
     L <- t(chol(K))
     mus[i] <- L[m + 1, 1 : m] %*% 
-      forwardsolve(L[1 : m, 1 : m], yTrnIn[NN[1 : m]])
+      forwardsolve(L[1 : m, 1 : m], yIn[NN[1 : m]])
     sds[i] <- L[m + 1, m + 1]
   }
-  mean(crps_norm(y = yTrnOut, mean = mus, sd = sds))
+  list(mean = mus, sd = sds)
 }
+
+#' CRPS out-of-sample score function
+#' 
+#' @param theta covariance parms (var, R/SR/range(s), tau)
+#' @param locsIn in-sample locs
+#' @param locsOut out-sample locs
+#' @param yIn
+#' @param yOut
+#' @param m conditioning set size in scaled Vecchia prediction
+#' @param covFn cov kernel name
+OOS_crps <- function(theta, locsIn, locsOut, yIn, yOut, m, 
+                     covFn = "matern25_scaledim_sqrelevance")
+{
+  predObj = pred_idp(theta, locsIn, locsOut, yIn, m, covFn)
+  mean(crps_norm(y = yOut, mean = predObj$mean, sd = predObj$sd))
+}
+
+#' RMSE out-of-sample score function
+#' 
+#' @param theta covariance parms (var, R/SR/range(s), tau)
+#' @param locsIn in-sample locs
+#' @param locsOut out-sample locs
+#' @param yIn
+#' @param yOut
+#' @param m conditioning set size in scaled Vecchia prediction
+#' @param covFn cov kernel name
+OOS_rmse <- function(theta, locsIn, locsOut, yIn, yOut, m, 
+                     covFn = "matern25_scaledim_sqrelevance")
+{
+  predObj = pred_idp(theta, locsIn, locsOut, yIn, m, covFn)
+  sqrt(mean((yOut - predObj$mean)^2) / var(yOut))
+}
+
 
 #' Split locs and y to p1 : (1 - p1)
 #' 
