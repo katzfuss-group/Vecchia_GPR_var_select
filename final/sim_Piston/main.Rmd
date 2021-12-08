@@ -1,0 +1,99 @@
+---
+title: "main"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r clean environment}
+rm(list = ls())
+```
+
+```{r libraries and self-defined funcs}
+source("../func/misc.R", chdir = T)
+source("../func/FBselect.R", chdir = T)
+source("../func/stop_cond.R", chdir = T)
+source("../func/locs_gen.R", chdir = T)
+source("../func/y_gen.R", chdir = T)
+source("../func/Vecc_path.R", chdir = T)
+source("../func/penalty.R", chdir = T)
+```
+
+## Generate dataset
+
+```{r gen dataset, eval = T}
+set.seed(123)
+n <- 1e3 # commandArgs(trailingOnly = T)[1]
+d <- 1e2 # commandArgs(trailingOnly = T)[2]
+rho <- 0.9 # as.numeric(commandArgs(trailingOnly = T)[3])
+kernel <- "piston" # commandArgs(trailingOnly = T)[4]
+if(rho != 0){
+  locs <- locs_gen_dp(n, d, rho)
+}else{
+  locs <- locs_gen_idp(n, d)
+}
+if(kernel == "piston" || kernel == "Piston"){
+  y <- Pist_gen(locs)
+}else{
+  stop("Kernel not defined\n")
+}
+```
+
+## Optimization parameters
+
+```{r some opt parms, eval = T}
+var0 <- 1
+tau0 <- 1e-4
+sr0 <- 1e-2
+minPosi <- 1e-8
+m <- 100
+k <- 5
+miniCQCD <- 128
+miniGrad <- 128
+lambVecBrdg <- 2^(rev(-10 : 4))
+convCQCD <- 1e-4
+convCCD <- 1e-4
+cAmij <- 1e-4
+maxIterCQCD <- 50
+maxIterCCD <- 40
+covFn <- "matern25_scaledim_sqrelevance"
+mini <- T
+taper <- F
+silent <- F
+```
+
+## Split dataset
+
+```{r split Train and Test, eval = T}
+spltObj <- splt_locs_y(locs, y, 0.75, 123)
+locsTrn <- spltObj$locs1
+yTrn <- spltObj$y1
+locsTst <- spltObj$locs2
+yTst <- spltObj$y2
+pIn = max(1 - 5e3 / n, 0.75)
+rm(spltObj, locs, y)
+```
+
+## Run optimization
+
+```{r Vecc_path parms est and var select, eval = T}
+bgnTime <- Sys.time()
+Vecc_path(var0 = var0, tau0 = tau0, sr0 = sr0, locs = locsTrn, y = yTrn, 
+          m = m, k = k, lambVec = lambVecBrdg, pen_fun = pen_brdg, 
+          dpen_fun = dpen_brdg, ddpen_fun = ddpen_brdg, OOS_score = OOS_crps,
+          stop_con_path = stop_con_OOS1_path, stop_con_fb = stop_con_OOS1_fb, 
+          miniCQCD = miniCQCD, miniGrad = miniGrad, pIn = pIn, spltSeed = 123,
+          convCQCD = convCQCD, convCCD = convCCD, cAmij = cAmij, 
+          maxIterCQCD = maxIterCQCD, maxIterCCD = maxIterCCD, covFn = covFn, 
+          minPosi = minPosi, mini = mini, taper = taper, silent = silent)
+endTime <- Sys.time()
+timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+cat("Vecchia solution path used", timeUsed, "seconds\n")
+```
+
+
+
+
+
