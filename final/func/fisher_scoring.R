@@ -1,3 +1,5 @@
+source("misc.R")
+
 fisher_scoring_meanzero <- function (likfun, start_parms, link, silent = FALSE, 
                                      convtol = 1e-04, max_iter = 40) 
 {
@@ -104,3 +106,55 @@ fisher_scoring_meanzero <- function (likfun, start_parms, link, silent = FALSE,
                         convtol || no_decrease), neval = j + 1)
   return(ret)
 }
+
+#' Train model indicated by locsIdx using Fisher scoring 
+#' 
+#' @param locsIdx covariate idx
+#' @param m NN size
+#' @param theta starting values of parameters 
+#' @param locs in-sample covariate matrix
+#' @param y in-sample obs vec
+#' @param covFn covariance function name
+#' @param maxIter max # iterations of Fisher scoring
+#' @param conv convergence level of Fisher scoring
+#' @param link_func link func, e.g., log
+#' @param resp_func response func, e.g., exp
+#' @param dresp_func dresponse func, e.g., exp
+#' @param silent bool for silent execution?
+fisher_scoring_meanzero_wrap <- function(locsIdx, m, theta, locs, y,
+                                         covFn, maxIter = 100, 
+                                         conv = 1e-4, link_func = log, 
+                                         resp_func = exp, dresp_func = exp, 
+                                         silent = T)
+{
+  d <- ncol(locs)
+  # MM and NN
+  # use dummy lb (-Inf) for MM_NN
+  MMNNObj <- MM_NN(theta, locsIdx, locs, y, rep(-Inf, length(theta)), m)
+  # obj func
+  objfun <- function(thetaTrans){
+    likobj <- 
+      vecchia_meanzero_loglik_grad_info(resp_func(thetaTrans), 
+                                        covFn,
+                                        MMNNObj$yOdr, MMNNObj$locsOdrRel, 
+                                        MMNNObj$NNarray)
+    likobj$loglik <- -likobj$loglik
+    likobj$grad <- -c(likobj$grad) * dresp_func(thetaTrans)
+    likobj$info <- likobj$info * outer(dresp_func(thetaTrans),
+                                       dresp_func(thetaTrans))
+    return(likobj)
+  }
+  # Fisher scoring
+  FisherObj <- fisher_scoring_meanzero(objfun, link_func(MMNNObj$thetaRel), 
+                                       resp_func, silent, conv, maxIter)
+  # return
+  theta <- rep(0, d + 2)
+  theta[c(1, locsIdx + 1, d + 2)] <- resp_func(FisherObj$logparms)
+  theta
+}
+
+
+
+
+
+
