@@ -1,5 +1,7 @@
 library(scoringRules)
 library(FNN)
+library(reticulate)
+source_python("faiss_NN.py")
 
 #' Make independent predictions at locsOut
 #' 
@@ -23,7 +25,10 @@ pred_idp <- function(theta, locsIn, locsOut, yIn, m, covFn)
     diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
   locsOutRelScal <- locsOutRel %*% 
     diag(sqrt(thetaRel[2 : (dRel + 1)]), dRel, dRel)
-  NNarray <- get.knnx(locsInRelScal, locsOutRelScal, m)$nn.index
+  if(nIn > 1e5)
+    NNarray <- get_NN_py(locsInRelScal, m, locsOutRelScal) + 1
+  else
+    NNarray <- get.knnx(locsInRelScal, locsOutRelScal, m)$nn.index
   NNarray <- cbind(NNarray, (nIn + 1) : (nIn + nOut))
   locsRel <- rbind(locsInRel, locsOutRel)
   mus <- rep(NA, nOut)
@@ -136,9 +141,13 @@ MM_NN <- function(theta, idx, locs, y, lb, m)
   locsRelScalOdr <- locsRelScal[odr, , drop = F]
   locsOdr <- locs[odr, , drop = F]
   locsOdrRel <- locsOdr[, idx, drop = F] 
-  NNarray <- GpGp::find_ordered_nn(locsRelScalOdr, m = m)
+  if(n > 1e5)
+    NNarray <- get_NN_py(locsRelScalOdr, m + 1) + 1
+  else
+    NNarray <- GpGp::find_ordered_nn(locsRelScalOdr, m = m)
   thetaRel <- theta[c(1, idx + 1, d + 2)]
   lbRel <- lb[c(1, idx + 1, d + 2)]
   list(locsOdr = locsOdr, locsOdrRel = locsOdrRel, yOdr = yOdr, 
        thetaRel = thetaRel, lbRel = lbRel, NNarray = NNarray)
 }
+
