@@ -26,14 +26,14 @@ source("../func/penalty.R", chdir = T)
 
 ```{r gen dataset, eval = T}
 set.seed(123)
-n <- 1e5 # commandArgs(trailingOnly = T)[1]
+n <- 1e4 # commandArgs(trailingOnly = T)[1]
 d <- 1e3 # commandArgs(trailingOnly = T)[2]
 rho <- 0 # as.numeric(commandArgs(trailingOnly = T)[3])
 kernel <- "piston" # commandArgs(trailingOnly = T)[4]
 if(rho != 0){
-  locs <- locs_gen_dp(n, d, rho)
+  locs <- locs_gen_dp(n, d, rho, F)
 }else{
-  locs <- locs_gen_idp(n, d)
+  locs <- locs_gen_idp(n, d, F)
 }
 if(kernel == "piston" || kernel == "Piston"){
   y <- Pist_gen(locs)
@@ -88,6 +88,13 @@ write.table(x = cbind(locsTst, yTst), row.names = F, sep = ",", col.names = F,
             file = paste0("./data/", tolower(kernel), "_", n, "_", d, "_", rho, 
                           "_test.csv"))
 ```
+
+## Test faiss_NN
+
+```{r test faiss, eval = F}
+
+```
+
 
 ## Run optimization
 

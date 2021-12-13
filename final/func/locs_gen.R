@@ -5,10 +5,13 @@ library(lhs)
 #' 
 #' @param n # locs
 #' @param d # covariates
-locs_gen_idp <- function(n, d){
+locs_gen_idp <- function(n, d, nmlz = T){
   locs <- randomLHS(n, d)
-  locs * outer(rep(sqrt(n), n), 
-               1 / sqrt(colSums(locs^2)))
+  if(nmlz)
+    locs * outer(rep(sqrt(n), n), 
+                 1 / sqrt(colSums(locs^2)))
+  else
+    locs
 }
 
 #' Generate n X d dependent locs
@@ -16,10 +19,13 @@ locs_gen_idp <- function(n, d){
 #' @param n # locs
 #' @param d # covariates
 #' @param rho # corr btw covariates
-locs_gen_dp <- function(n, d, rho){
+locs_gen_dp <- function(n, d, rho, nmlz = T){
   covM <- matrix(rho, d, d)
   diag(covM) <- 1
   locs <- rmvnorm(n, sigma = covM) 
-  locs * outer(rep(sqrt(n), n), 
-               1 / sqrt(colSums(locs^2)))
+  if(nmlz)
+    locs * outer(rep(sqrt(n), n), 
+                 1 / sqrt(colSums(locs^2)))
+  else
+    locs
 }
