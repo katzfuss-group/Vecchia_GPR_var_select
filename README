@@ -1,3 +1,0 @@
-CQCD_1.0_exp has the experiments prior to the algorithm redesign in commit 9f1dcf914c112c145682e9acbd63f9eb29a81d33. It is mainly used as reference. The new design of CQCD improved a lot, also deleted the non-intuitive contingency checks.
-
-CQCD_2.0_exp hopefully will become the final version of the algorithms developed for this paper. Figures and relevant data will be produced in the markdown files.
