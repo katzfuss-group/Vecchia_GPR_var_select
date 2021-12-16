@@ -201,6 +201,7 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
 #' @param likfun_GDFIM returns stochastic log-likelihood, gradient, and FIM
 #' @param n the number of total observations
 #' @param batchSz batch size
+#' @param nAvg number of past parms to average together
 #' @param parms0 starting values of parameters
 #' @param convtolOut convergence tolerance on step dot grad
 #' @param convtolIn convergence tolerance on the step of one coordinate descent epoch
@@ -210,7 +211,7 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
 #' @param lb the lower bounds for all parameters
 #' @param arg_check the function for checking parms
 #' @param silent TRUE/FALSE for suppressing output
-CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0, 
+CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, nAvg, parms0, 
                                   convtolOut = 1e-4, convtolIn = 1e-4, 
                                   cAmij = 1e-4,
                                   maxIterOut = 20, maxIterIn = 40, 
@@ -223,10 +224,11 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
   if(!arg_check(parms0))
     stop(paste("Argument check for parms0 failed. Stopping... \n"))
   
+  parmsAvgMat <- matrix(parms0, length(parms0), nAvg, byrow = F)
   parmsAvg <- parms0
   parms <- parms0
   batchIdx <- sample(x = 1 : n, size = batchSz, replace = F)
-  likobj <- likfun_GDFIM(parms, batchIdx, parmsAvg, 1)
+  likobj <- likfun_GDFIM(parms, batchIdx, parmsAvg, nAvg + 1)
   
   s <- 0
   scaler <- 1
@@ -239,6 +241,7 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     obj <- - likobj$loglik
     grad <- - likobj$grad * scaler
     H <- likobj$info
+    
     if(!silent)
     {
       cat(paste0("CQCD iter ", i - 1, ": \n"))
@@ -251,8 +254,9 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     DSCObj <- dsc_lb(H, b, parms, silent, convtolIn, maxIterIn, lb)
     parmsNew <- bktk_Armijo(parms, obj, grad, DSCObj$parms, cAmij, 
                             function(x){- likfun(x, batchIdx, 
-                                                 (parmsAvg * i + x) / (i + 1),
-                                                 i + 1)$loglik}, 
+                                                 (parmsAvg * nAvg + x) / 
+                                                   (nAvg + 1),
+                                                 nAvg + 1)$loglik}, 
                             lb, arg_check)
     # if coord descent meets Armijo condition
     if((abs(sum((parmsNew - parms) * grad)) >= convtolOut))
@@ -264,8 +268,9 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     {
       parmsNew <- gd_Armijo(parms, obj, grad, cAmij, 
                             function(x){- likfun(x, batchIdx, 
-                                                 (parmsAvg * i + x) / (i + 1),
-                                                 i + 1)$loglik}, 
+                                                 (parmsAvg * nAvg + x) / 
+                                                   (nAvg + 1),
+                                                 nAvg + 1)$loglik}, 
                             lb, arg_check)
       if(!silent)
         cat("Lower bounded gradient descent is used \n")
@@ -278,9 +283,11 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     parmsM2 <- parmsM1
     parmsM1 <- parms
     parms <- parmsNew
-    parmsAvg <- (parmsAvg * i + parms) / (i + 1)
+    parmsAvgMat[, (i - 1) %% nAvg + 1] <- parms
+    parmsAvg <- apply(parmsAvgMat, 1, mean)
     iterCounter <- iterCounter + 1
-    likobj <- likfun_GDFIM(parms, batchIdx, parmsAvg, i + 1)
+    likobj <- likfun_GDFIM(parms, batchIdx, (parmsAvg * nAvg + parms) / 
+                             (nAvg + 1), nAvg + 1)
     if(i > 1)
       s <- s + sum((parms - parmsM1) * (parmsM1 - parmsM2))
     if(s < 0 && iterCounter > 2){
@@ -571,16 +578,23 @@ bktk_Armijo <- function(parms, obj, grad, parmsNew, c, obj_func, lb, arg_check)
 #' @param mini bool for using mini-batching?
 #' @param taper bool for using penalty tapering?
 #' @param silent bool for silent execution?
+#' @param nAvg number of past parms to average together
 CQCD_wrap <- function(theta, y, locs, NNarray, lb, lambda, 
                       pen_fun, dpen_fun, ddpen_fun, 
                       convCQCD = 1e-4, convCCD = 1e-4, cAmij = 1e-4, 
                       maxIterCQCD = 500, maxIterCCD = 40,
                       covFn = "matern25_scaledim_sqrelevance",
-                      miniCQCD = 128, mini = T, taper = F, silent = F)
+                      miniCQCD = 128, mini = T, taper = F, silent = F, ...)
 {
   n <- nrow(locs)
+  args <- list(...)
+  
   if(mini){
     if(taper){
+      if(is.null(args[["nAvg"]]))
+        nAvg <- 10
+      else
+        nAvg <- args[["nAvg"]]
       objfun <- function(theta, batchIdx, thetaAvg, iter){
         likObj <- vecchia_meanzero_loglik(theta, covFn, y, locs, 
                                           NNarray[batchIdx, , drop = F])
@@ -596,7 +610,7 @@ CQCD_wrap <- function(theta, y, locs, NNarray, lb, lambda,
         likObj$info <- likObj$info + ddpen_fun(thetaAvg, lambda, iter)
         likObj
       }
-      CQCD_stochastic_taper(objfun, objfun_gdfm, n, miniCQCD, 
+      CQCD_stochastic_taper(objfun, objfun_gdfm, n, miniCQCD, nAvg, 
                             theta, lb = lb, convtolOut = convCQCD, 
                             convtolIn = convCCD, maxIterOut = maxIterCQCD,
                             maxIterIn = maxIterCCD, cAmij = cAmij, 
