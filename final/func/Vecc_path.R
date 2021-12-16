@@ -36,7 +36,7 @@ Vecc_path <- function(var0, tau0, sr0, locs, y, m, k, lambVec, pen_fun,
                       spltSeed = NULL, convCQCD = 1e-4, 
                       convCCD = 1e-4, cAmij = 1e-4, maxIterCQCD = 500, 
                       maxIterCCD = 40, covFn = "matern25_scaledim_sqrelevance", 
-                      minPosi = 1e-8, mini = T, taper = F, silent = F)
+                      minPosi = 1e-8, mini = T, taper = F, silent = F, ...)
 {
   n <- nrow(locs)
   d <- ncol(locs)
@@ -75,8 +75,8 @@ Vecc_path <- function(var0, tau0, sr0, locs, y, m, k, lambVec, pen_fun,
                       miniGrad = miniGrad, convCQCD = convCQCD, 
                       convCCD = convCCD, cAmij = cAmij, 
                       maxIterCQCD = maxIterCQCD, maxIterCCD = maxIterCCD, 
-                      covFn = covFn, minPosi = minPosi, mini = T, taper = F, 
-                      silent = F)
+                      covFn = covFn, minPosi = minPosi, mini = mini, 
+                      taper = taper, silent = silent, ...)
     endTime <- Sys.time()
     # save results
     idxSet[[i]] <- optObj$idx
