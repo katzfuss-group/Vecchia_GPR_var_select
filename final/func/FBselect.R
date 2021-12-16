@@ -36,7 +36,7 @@ fwd_bwd <- function(idx, theta, sr0, locsIn, locsOut, yIn, yOut,
                     miniGrad, convCQCD = 1e-4, convCCD = 1e-4, cAmij = 1e-4, 
                     maxIterCQCD = 500, maxIterCCD = 40, 
                     covFn = "matern25_scaledim_sqrelevance", 
-                    minPosi = 1e-8, mini = T, taper = F, silent = F)
+                    minPosi = 1e-8, mini = T, taper = F, silent = F, ...)
 {
   d <- ncol(locsIn)
   # storage vars
@@ -64,7 +64,7 @@ fwd_bwd <- function(idx, theta, sr0, locsIn, locsOut, yIn, yOut,
                          convCCD = convCCD, cAmij = cAmij, 
                          maxIterCQCD = maxIterCQCD, maxIterCCD = maxIterCCD,
                          covFn = covFn, miniCQCD = miniCQCD, mini = mini, 
-                         taper = taper, silent = silent)
+                         taper = taper, silent = silent, ...)
     timePnt3 <- Sys.time()
     theta <- get_theta(CQCDObj$covparms, idx, d)
     idx <- idx[sapply(idx, function(i){theta[i + 1] > 0})]

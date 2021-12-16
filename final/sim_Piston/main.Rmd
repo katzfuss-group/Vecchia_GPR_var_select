@@ -1,5 +1,5 @@
 ---
-title: "main"
+title: "Piston Sim Study"
 output: html_document
 ---
 
@@ -26,7 +26,7 @@ source("../func/penalty.R", chdir = T)
 
 ```{r gen dataset, eval = T}
 set.seed(123)
-n <- 1e4 # commandArgs(trailingOnly = T)[1]
+n <- 1e6 # commandArgs(trailingOnly = T)[1]
 d <- 1e3 # commandArgs(trailingOnly = T)[2]
 rho <- 0 # as.numeric(commandArgs(trailingOnly = T)[3])
 kernel <- "piston" # commandArgs(trailingOnly = T)[4]
@@ -36,6 +36,7 @@ if(rho != 0){
   locs <- locs_gen_idp(n, d, F)
 }
 if(kernel == "piston" || kernel == "Piston"){
+  locs <- locs + 1 - min(locs)
   y <- Pist_gen(locs)
   y <- (y - mean(y)) /sd(y)
   d0 <- 7
@@ -55,16 +56,19 @@ m <- 100
 k <- 5
 miniCQCD <- 128
 miniGrad <- 128
-lambVecBrdg <- 2^(rev(-10 : 4))
+lambVecBrdg <- c(4^(rev(-13 : -4)), 0)
 convCQCD <- 1e-4
 convCCD <- 1e-4
 cAmij <- 1e-4
-maxIterCQCD <- 100
+maxIterCQCD <- 200
 maxIterCCD <- 40
 covFn <- "matern25_scaledim_sqrelevance"
 mini <- T
-taper <- F
+taper <- T
 silent <- F
+pen_fun <- pen_avg_brdg
+dpen_fun <- dpen_avg_brdg
+ddpen_fun <- ddpen_avg_brdg
 ```
 
 ## Split dataset
@@ -110,9 +114,9 @@ VeccObj <-
     m = m,
     k = k,
     lambVec = lambVecBrdg,
-    pen_fun = pen_brdg,
-    dpen_fun = dpen_brdg,
-    ddpen_fun = ddpen_brdg,
+    pen_fun = pen_fun,
+    dpen_fun = dpen_fun,
+    ddpen_fun = ddpen_fun,
     OOS_score = OOS_crps,
     stop_con_path = stop_con_OOS1_path,
     stop_con_fb = stop_con_OOS1_fb,
@@ -146,10 +150,13 @@ cat("Vecchia solution path FPR:",
 ```{r Lasso parms est and var select, eval = T}
 lassoPath <- glmnet(x = locsTrn, y = yTrn, alpha = 1, intercept = T)
 plot(lassoPath)
+bgnTime <- Sys.time()
 cvLassoObj <- cv.glmnet(x = locsTrn, y = yTrn, alpha = 1, intercept = T)
 predLasso <- predict(object = cvLassoObj, s = cvLassoObj$lambda.min, 
                      newx = locsTst)
 rmseScrLasso <- sqrt(mean((predLasso - yTst)^2) / var(yTst))
+endTime <- Sys.time()
+cat("Lasso solution path used", timeUsed, "seconds\n")
 idxSel <- which(
   cvLassoObj$glmnet.fit$beta[, cvLassoObj$index["min", "Lambda"]] != 0)
 nSelLasso <- cvLassoObj$nzero[cvLassoObj$index["min", "Lambda"]]

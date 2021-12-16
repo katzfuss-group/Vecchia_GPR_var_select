@@ -5,6 +5,7 @@ library(lhs)
 #' 
 #' @param n # locs
 #' @param d # covariates
+#' @param nmlz # whether to normalize or not
 locs_gen_idp <- function(n, d, nmlz = T){
   locs <- randomLHS(n, d)
   if(nmlz)
@@ -19,6 +20,7 @@ locs_gen_idp <- function(n, d, nmlz = T){
 #' @param n # locs
 #' @param d # covariates
 #' @param rho # corr btw covariates
+#' @param nmlz # whether to normalize or not
 locs_gen_dp <- function(n, d, rho, nmlz = T){
   covM <- matrix(rho, d, d)
   diag(covM) <- 1

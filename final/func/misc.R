@@ -136,7 +136,10 @@ MM_NN <- function(theta, idx, locs, y, lb, m)
   dHat <- length(idx)
   locsRel <- locs[, idx, drop = F]
   locsRelScal <- locsRel %*% diag(sqrt(theta[1 + idx]), dHat, dHat)
-  odr <- order_maxmin(locsRelScal)
+  if(n > 1e5)
+    odr <- sample(1 : n)
+  else
+    odr <- order_maxmin(locsRelScal) 
   yOdr <- y[odr]
   locsRelScalOdr <- locsRelScal[odr, , drop = F]
   locsOdr <- locs[odr, , drop = F]
