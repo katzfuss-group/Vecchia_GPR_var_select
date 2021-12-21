@@ -1,0 +1,228 @@
+---
+title: "Application Study"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preparation
+
+Clean the environment
+```{r clean environment}
+rm(list = ls())
+```
+
+Need to install a modified version of the GpGp R package.
+```{r libraries and self-defined funcs}
+library(glmnet)
+source("../func/misc.R", chdir = T)
+source("../func/FBselect.R", chdir = T)
+source("../func/stop_cond.R", chdir = T)
+source("../func/locs_gen.R", chdir = T)
+source("../func/y_gen.R", chdir = T)
+source("../func/Vecc_path.R", chdir = T)
+source("../func/penalty.R", chdir = T)
+```
+
+Read args
+```{r read args, eval = T}
+datasetName <- commandArgs(trailingOnly = T)[1]
+setLambda <- F
+if(length(commandArgs(trailingOnly = T)) > 1){
+  setLambda <- T
+  lambLo <- as.numeric(commandArgs(trailingOnly = T)[2])
+  lambUp <- as.numeric(commandArgs(trailingOnly = T)[3])
+}
+```
+
+Data construction
+```{r reformat data, eval = T}
+set.seed(123)
+trainsetFn <- paste0("data/", datasetName, "_train.csv")
+testsetFn <- paste0("data/", datasetName, "_test.csv")
+datasetTrn <- read.table(file = trainsetFn, header = F, sep = ",",
+                           row.names = NULL)
+datasetTst <- read.table(file = testsetFn, header = F, sep = ",",
+                          row.names = NULL)
+nTrn <- nrow(datasetTrn)
+nTst <- nrow(datasetTst)
+d <- ncol(datasetTrn) - 1
+grpFk <- gregexpr("f[0-9]+", datasetName)[[1]]
+if(grpFk > 0){
+  dFk <- as.numeric(substr(datasetName, grpFk + 1,
+                           grpFk + attributes(grpFk)$match.length - 1))
+}else
+  dFk <- 0
+dTrue <- d - dFk
+
+locsTrn <- as.matrix(datasetTrn[, 1 : d, drop = F])
+locsTst <- as.matrix(datasetTst[, 1 : d, drop = F])
+# standardize y
+yTrn <- datasetTrn[, d + 1]
+yTst <- datasetTst[, d + 1]
+meanYTrn <- mean(yTrn)
+sdYTrn <- sd(yTrn)
+yTrn <- (yTrn - meanYTrn) / sdYTrn
+yTst <- (yTst - meanYTrn) / sdYTrn
+pIn = max(1 - 5e3 / nTrn, 0.75)
+rm(datasetTst, datasetTrn)
+```
+
+## VREG
+
+```{r some opt parms, eval = T}
+var0 <- 1
+tau0 <- 1e-4
+sr0 <- 1e-2
+minPosi <- 1e-8
+m <- 100
+k <- 5
+miniCQCD <- 128
+miniGrad <- 128
+nAvg <- 15
+if(setLambda){
+  lambVecBrdg <- 2^(rev(seq(from = log2(lambLo), to = log2(lambUp), by = 1)))
+}else
+  lambVecBrdg <- 2^(rev(-6 : 6))
+convCQCD <- 1e-4
+convCCD <- 1e-4
+cAmij <- 1e-4
+maxIterCQCD <- 200
+maxIterCCD <- 40
+covFn <- "matern25_scaledim_sqrelevance"
+mini <- T
+taper <- T
+silent <- F
+pen_fun <- pen_avg_brdg
+dpen_fun <- dpen_avg_brdg
+ddpen_fun <- ddpen_avg_brdg
+```
+
+```{r Vecc_path parms est and var select, eval = T, echo = F, results = F}
+bgnTime <- Sys.time()
+VeccObj <-
+  Vecc_path(
+    var0 = var0,
+    tau0 = tau0,
+    sr0 = sr0,
+    locs = locsTrn,
+    y = yTrn,
+    m = m,
+    k = k,
+    lambVec = lambVecBrdg,
+    pen_fun = pen_fun,
+    dpen_fun = dpen_fun,
+    ddpen_fun = ddpen_fun,
+    OOS_score = OOS_crps,
+    stop_con_path = stop_con_OOS1_path,
+    stop_con_fb = stop_con_OOS1_fb,
+    miniCQCD = miniCQCD,
+    miniGrad = miniGrad,
+    pIn = pIn,
+    spltSeed = 123,
+    convCQCD = convCQCD,
+    convCCD = convCCD,
+    cAmij = cAmij,
+    maxIterCQCD = maxIterCQCD,
+    maxIterCCD = maxIterCCD,
+    covFn = covFn,
+    minPosi = minPosi,
+    mini = mini,
+    taper = taper,
+    silent = silent,
+    nAvg = nAvg
+  )
+endTime <- Sys.time()
+timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+cat("Vecchia solution path used", timeUsed, "seconds\n")
+```
+
+```{r Vecc_path performance, eval = T}
+VeccScr <- OOS_rmse(VeccObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
+cat("Vecchia solution path RMSE score:", VeccScr, "\n")
+cat("Vecchia solution path selected:", length(VeccObj$idx), "covariates\n")
+cat("Vecchia solution path FPR:", 
+    length(setdiff(VeccObj$idx, 1 : dTrue)) / length(VeccObj$idx), "\n")
+```
+
+## Lasso regression.
+
+```{r Lasso regression, eval = T}
+lassoPath <- glmnet(x = locsTrn, y = yTrn, alpha = 1, intercept = T)
+plot(lassoPath)
+bgnTime <- Sys.time()
+cvLassoObj <- cv.glmnet(x = locsTrn, y = yTrn, alpha = 1, intercept = T)
+predLasso <- predict(object = cvLassoObj, s = cvLassoObj$lambda.min, 
+                     newx = locsTst)
+rmseScrLasso <- sqrt(mean((predLasso - yTst)^2) / var(yTst))
+endTime <- Sys.time()
+timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+cat("Lasso solution path used", timeUsed, "seconds\n")
+idxSel <- which(
+  cvLassoObj$glmnet.fit$beta[, cvLassoObj$index["min", "Lambda"]] != 0)
+nSelLasso <- cvLassoObj$nzero[cvLassoObj$index["min", "Lambda"]]
+cat("Lasso solution path RMSE score:", rmseScrLasso, "\n")
+cat("Lasso solution path selected:", length(idxSel), "covariates\n")
+cat("Lasso solution path FPR:", 
+    length(setdiff(idxSel, 1 : dTrue)) / length(idxSel), "\n")
+```
+
+```{r regression tree parms est and var select, eval = T}
+source_python("../func/reg_tree.py")
+bgnTime <- Sys.time()
+regTreeObj <- reg_tree_wrap(locsTrn, yTrn, locsTst, yTst, pIn)
+endTime <- Sys.time()
+timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+cat("Regression tree used", timeUsed, "seconds\n")
+cat("Regression tree RMSE score:", regTreeObj$rmseScr, "\n")
+cat("Regression tree selected:", length(regTreeObj$idxSel), "covariates\n")
+cat("Regression tree FPR:", 
+    length(setdiff(regTreeObj$idxSel, 1 : dTrue)) / length(regTreeObj$idxSel), "\n")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
