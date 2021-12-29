@@ -638,6 +638,22 @@ CQCD_wrap <- function(theta, y, locs, NNarray, lb, lambda,
                       silent = silent)
     }
   }else{
-    stop("CQCD_wrap with mini = F is not implemented yet\n")
+    objfun <- function(theta){
+      likObj <- vecchia_meanzero_loglik(theta, covFn, y, locs, NNarray)
+      likObj$loglik <- likObj$loglik - pen_fun(theta, lambda)
+      likObj
+    }
+    objfun_gdfm <- function(theta){
+      likObj <- vecchia_meanzero_loglik_grad_info(theta, covFn, y, locs, 
+                                                  NNarray)
+      likObj$loglik <- likObj$loglik - pen_fun(theta, lambda)
+      likObj$grad <- likObj$grad - dpen_fun(theta, lambda)
+      likObj$info <- likObj$info + ddpen_fun(theta, lambda)
+      likObj
+    }
+    CQCD(objfun, objfun_gdfm, theta, lb = lb, convtolOut = convCQCD, 
+         convtolIn = convCCD, maxIterOut = maxIterCQCD,
+         maxIterIn = maxIterCCD, cAmij = cAmij, 
+         silent = silent)
   }
 }

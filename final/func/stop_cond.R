@@ -26,8 +26,7 @@ stop_con_OOS1_path <- function(scrVec, idxSet, thetaSet, minPosi = 1e-4)
 #' @param scrVec score vector
 #' @param idxSet idx list
 #' @param thetaSet theta list
-#' @param minPosi a small positive number checking if theta is meaningful
-stop_con_OOS1_fb <- function(scrVec, idxSet, thetaSet, minPosi = 1e-4)
+stop_con_OOS1_fb <- function(scrVec, idxSet, thetaSet)
 {
   i <- length(scrVec)
   if(i < 2)

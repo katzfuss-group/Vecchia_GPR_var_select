@@ -88,10 +88,18 @@ fwd_bwd <- function(idx, theta, sr0, locsIn, locsOut, yIn, yOut,
     if(iOpt > 0)
       break
     # compute grad
-    gradObj <- comp_grad_mean0(theta = theta, locs = MMNNObj$locsOdr, 
-                               y = MMNNObj$yOdr, 
-                               NNarray = MMNNObj$NNarray, miniGrad = miniGrad, 
-                               covFn = covFn)
+    if(mini){
+      gradObj <- comp_grad_mean0(theta = theta, locs = MMNNObj$locsOdr, 
+                                 y = MMNNObj$yOdr, 
+                                 NNarray = MMNNObj$NNarray, miniGrad = miniGrad, 
+                                 covFn = covFn)
+    }else{
+      gradObj <- comp_grad_mean0(theta = theta, locs = MMNNObj$locsOdr, 
+                                 y = MMNNObj$yOdr, 
+                                 NNarray = MMNNObj$NNarray, 
+                                 miniGrad = length(MMNNObj$yOdr), 
+                                 covFn = covFn)
+    }
     # select var
     kHat <- min(k, d - length(idx))
     odrGrad <- order(gradObj$grad[2 : (d + 1)], decreasing = T)

@@ -1,3 +1,5 @@
+library(mvtnorm)
+library(GpGp)
 source("piston_func.R")
 
 #' Generate y based on the Piston function
@@ -11,4 +13,15 @@ Pist_gen <- function(locs){
   }
   locsTmp <- apply(locs[, 1 : 7], 2, function(x){x - min(x) + 1})
   apply(locsTmp, 1, pistonfun)
+}
+
+#' Generate multivariate normal y
+#' 
+#' @param locs n X d matrix
+#' @param parms covariance parameters
+#' @param covFn covariance function name from 'GpGp'
+MVN_gen <- function(locs, parms, covFn){
+  n <- nrow(locs)
+  covM <- get(covFn)(parms, locs)
+  as.vector(rmvnorm(n = 1, sigma = covM))
 }
