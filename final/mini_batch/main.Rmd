@@ -1,0 +1,197 @@
+---
+title: "Bridge GP Regression with mini-batching"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r clean env and load libs}
+rm(list = ls())
+source("../func/misc.R", chdir = T)
+source("../func/FBselect.R", chdir = T)
+source("../func/stop_cond.R", chdir = T)
+source("../func/locs_gen.R", chdir = T)
+source("../func/y_gen.R", chdir = T)
+source("../func/Vecc_path.R", chdir = T)
+source("../func/penalty.R", chdir = T)
+```
+
+Simulate GP.
+```{r simulate GP, eval = T}
+n <- 1e4
+d <- 1e3
+rho <- as.numeric(commandArgs(trailingOnly = T)[1])
+rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+covFn <- "matern25_scaledim_sqrelevance"
+if(rho != 0){
+  locs <- locs_gen_dp(n, d, rho)
+}else{
+  locs <- locs_gen_idp(n, d)
+}
+y <- MVN_gen(locs, c(sigmasq, rSq, tausq), covFn)
+```
+
+```{r batch size, eval = T}
+batchSzCQCD <- 128
+batchSzGrad <- 128
+```
+
+```{r opt parms, eval = T}
+var0 <- 1
+tau0 <- 1e-4
+sr0 <- 1e-2
+minPosi <- 1e-8
+m <- 100
+k <- 5
+miniCQCD <- 128
+miniGrad <- 128
+lambVec <- c(2^(rev(-6: 10)), 0)
+convCQCD <- 1e-4
+convCCD <- 1e-4
+cAmij <- 1e-4
+maxIterCQCD <- 200
+maxIterCCD <- 40
+covFn <- "matern25_scaledim_sqrelevance"
+mini <- T
+taper <- T
+silent <- F
+pen_fun <- pen_avg_brdg
+dpen_fun <- dpen_avg_brdg
+ddpen_fun <- ddpen_avg_brdg
+nAvg <- 5
+```
+
+```{r split Train and Test, eval = T}
+pIn = max(1 - 5e3 / n, 0.75)
+```
+
+```{r loop over lambda, eval = T}
+# init theta and idx
+rndIdx <- sample(1 : d, 1)
+theta <- c(var0, rep(0, d), tau0)
+theta[rndIdx + 1] <- sr0
+idx <- rndIdx
+# storage vars
+idxSet <- list()
+thetaSet <- list()
+scrVec <- c()
+# split locs and y
+spltObj <- splt_locs_y(locs = locs, y = y, p1 = pIn, seed = 123)
+locsIn <- spltObj$locs1
+yIn <- spltObj$y1
+locsOut <- spltObj$locs2
+yOut <- spltObj$y2
+# loop over lambda
+for(i in 1 : length(lambVec)){
+  lambda <- lambVec[i]
+  cat("lambda =", lambda, "\n")
+  # re-init var and tau for each lambda
+  theta[1] <- var0
+  theta[d + 2] <- tau0
+  # 1st level opt
+  bgnTime <- Sys.time()
+  optObj <- fwd_bwd(idx = idx, theta = theta, sr0 = sr0, locsIn = locsIn, 
+                    locsOut = locsOut, yIn = yIn, yOut = yOut, m = m, k = k, 
+                    lambda = lambda, pen_fun = pen_fun, dpen_fun = dpen_fun, 
+                    ddpen_fun = ddpen_fun, OOS_score = OOS_crps, 
+                    stop_con_fb = stop_con_OOS1_fb, miniCQCD = miniCQCD, 
+                    miniGrad = miniGrad, convCQCD = convCQCD, 
+                    convCCD = convCCD, cAmij = cAmij, 
+                    maxIterCQCD = maxIterCQCD, maxIterCCD = maxIterCCD, 
+                    covFn = covFn, minPosi = minPosi, mini = mini, 
+                    taper = taper, silent = silent)
+  endTime <- Sys.time()
+  # save results
+  idxSet[[i]] <- optObj$idx
+  thetaSet[[i]] <- optObj$theta
+  scrVec[i] <- optObj$scr
+  idx <- optObj$idx
+  theta <- optObj$theta
+  if(!silent){
+    cat("Results for lambda =", lambVec[i], ":\n")
+    cat("idx:", idxSet[[i]], "\n")
+    cat("theta:", thetaSet[[i]][c(1, idxSet[[i]] + 1, d + 2)], "\n")
+    cat("score:", scrVec[i], "\n")
+    cat("fwd_bwd used", as.numeric(endTime - bgnTime, units = "secs"), 
+        "seconds\n\n")
+  }
+}
+save(list = c("n", "d", "rho", "idxSet", "thetaSet", "scrVec", "lambVec"), 
+     file = paste0("minibat_", n, "_", d, "_", rho, ".RData"))
+```
+
+## Plot
+
+Load libraries for plotting.
+```{r lib for plotting, eval = F}
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(reshape)
+```
+
+Build dataframe for plotting theta.
+```{r df theta, eval = F}
+firstIdx <- max(which(sapply(thetaSet, 
+                             function(x){sum(x[2 : (d + 1)]) > 1e-4}))[1] - 1, 
+                1)
+d <- length(thetaSet[[1]]) - 2
+dfTheta <- matrix(NA, length(idxSet) - firstIdx + 1, d + 1)
+colnames(dfTheta) <- c("lambda", paste0("var", 1 : d))
+for(i in firstIdx : length(idxSet))
+{
+  dfTheta[i - firstIdx + 1, 1] <- lambVec[[i]]
+  dfTheta[i - firstIdx + 1, 2 : (d + 1)] <- sqrt(thetaSet[[i]][2 : (d + 1)])
+}
+dfTheta <- as.data.frame(dfTheta)
+dfTheta <- melt(dfTheta, id = c(1))
+colnames(dfTheta) <- c("lambda", "varID", "relevance")
+
+dfThetaTrue <- data.frame("varID" = paste0("var", 1 : d), 
+                          "trueVal" = sqrt(c(100, 25, 4, 1, 0.25, 
+                                             rep(0, d - 5))))
+```
+
+Plot the change of `theta` v.s. `lambda`.
+```{r plot theta-lambda, eval = F}
+nLamb <- length(lambVec)
+scrChg <- 1 - scrVec[(firstIdx + 1) : nLamb] / scrVec[firstIdx : (nLamb - 1)] 
+lambStop <- lambVec[which(scrChg < 0)[1] + firstIdx - 1]
+xlabs <- lambVec[seq(from = 1, to = length(lambVec), by = 3)]
+
+ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
+  geom_line() +
+  geom_hline(mapping = aes(col = varID, yintercept = trueVal), 
+             data = dfThetaTrue,
+             size = 0.5, lty = "dashed") + 
+  geom_vline(xintercept = lambStop, size = 1.0, lty = "dotted", 
+             color = "brown") + 
+  geom_hline(yintercept = 0, size = 0.5) + 
+  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.01),
+                     breaks = unique(dfThetaTrue$trueVal)) +
+  scale_x_continuous(trans = pseudo_log_trans(
+    sigma = lambVec[length(lambVec) - 1]),
+    breaks = xlabs,
+    labels = sprintf("2^%.0f", log2(xlabs))) +
+  scale_color_manual(breaks = unique(dfThetaTrue$varID),
+                     values = c(rainbow(5), rep("grey", d - 5))) +
+  theme(legend.position = "none", text = element_text(size = 20))
+if(rho != 0){
+  figFn <- paste0("CQCD_bridge_minibat_dep_", n, "_", d, ".pdf")
+}else{
+  figFn <- paste0("CQCD_bridge_minibat_", n, "_", d, ".pdf")
+}
+ggsave(filename = figFn, width = 7, height = 5)
+```
+
+
+
+
+
+
+
+
