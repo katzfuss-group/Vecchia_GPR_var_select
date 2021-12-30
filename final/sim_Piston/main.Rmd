@@ -27,10 +27,10 @@ source("../func/penalty.R", chdir = T)
 
 ```{r gen dataset, eval = T}
 set.seed(123)
-n <- 1e4 # commandArgs(trailingOnly = T)[1]
-d <- 1e3 # commandArgs(trailingOnly = T)[2]
-rho <- 0.9 # as.numeric(commandArgs(trailingOnly = T)[3])
-kernel <- "piston" # commandArgs(trailingOnly = T)[4]
+n <- 1e6 
+d <- 1e3 
+rho <- as.numeric(commandArgs(trailingOnly = T)[1])
+kernel <- "piston"
 if(rho != 0){
   locs <- locs_gen_dp(n, d, rho, F)
 }else{
@@ -81,7 +81,7 @@ locsTrn <- spltObj$locs1
 yTrn <- spltObj$y1
 locsTst <- spltObj$locs2
 yTst <- spltObj$y2
-pIn = max(1 - 5e3 / n, 0.75)
+pIn <- max(1 - 5e3 / n, 0.75)
 rm(spltObj, locs, y)
 ```
 
@@ -139,6 +139,7 @@ cat("Vecchia solution path used", timeUsed, "seconds\n")
 ```{r Vecc_path performance, eval = T}
 VeccScr <- OOS_rmse(VeccObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
 cat("Vecchia solution path RMSE score:", VeccScr, "\n")
+cat("Vecchia solution path selected:", length(VeccObj$idx), "covariates\n")
 cat("Vecchia solution path FPR:", 
     length(setdiff(VeccObj$idx, 1 : d0)) / length(VeccObj$idx), "\n")
 ```
@@ -158,9 +159,12 @@ idxSel <- which(
   cvLassoObj$glmnet.fit$beta[, cvLassoObj$index["min", "Lambda"]] != 0)
 nSelLasso <- cvLassoObj$nzero[cvLassoObj$index["min", "Lambda"]]
 cat("Lasso solution path RMSE score:", rmseScrLasso, "\n")
+cat("Lasso solution path selected:", length(idxSel), "covariates\n")
 cat("Lasso solution path FPR:", 
     length(setdiff(idxSel, 1 : d0)) / length(idxSel), "\n")
 ```
+
+## Regression tree
 
 ```{r regression tree parms est and var select, eval = T}
 source_python("../func/reg_tree.py")
@@ -170,6 +174,7 @@ endTime <- Sys.time()
 timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
 cat("Regression tree used", timeUsed, "seconds\n")
 cat("Regression tree RMSE score:", regTreeObj$rmseScr, "\n")
+cat("Regression tree selected:", length(regTreeObj$idxSel), "covariates\n")
 cat("Regression tree FPR:", 
     length(setdiff(regTreeObj$idxSel, 1 : d0)) / length(regTreeObj$idxSel), "\n")
 ```

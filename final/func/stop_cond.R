@@ -36,3 +36,19 @@ stop_con_OOS1_fb <- function(scrVec, idxSet, thetaSet)
   else
     return(-1)
 }
+
+#' Forward-backward stop condition based on 0% impr OOS score
+#' 
+#' @param scrVec score vector
+#' @param idxSet idx list
+#' @param thetaSet theta list
+stop_con_OOS0_fb <- function(scrVec, idxSet, thetaSet)
+{
+  i <- length(scrVec)
+  if(i < 2)
+    return(-1)
+  if(scrVec[i] > scrVec[i - 1])
+    return(i - 1)
+  else
+    return(-1)
+}

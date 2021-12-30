@@ -20,6 +20,7 @@ source("../func/penalty.R", chdir = T)
 
 Simulate GP.
 ```{r simulate GP, eval = T}
+set.seed(123)
 n <- 1e4
 d <- 1e3
 rho <- as.numeric(commandArgs(trailingOnly = T)[1])
@@ -98,7 +99,7 @@ for(i in 1 : length(lambVec)){
                     locsOut = locsOut, yIn = yIn, yOut = yOut, m = m, k = k, 
                     lambda = lambda, pen_fun = pen_fun, dpen_fun = dpen_fun, 
                     ddpen_fun = ddpen_fun, OOS_score = OOS_crps, 
-                    stop_con_fb = stop_con_OOS1_fb, miniCQCD = miniCQCD, 
+                    stop_con_fb = stop_con_OOS0_fb, miniCQCD = miniCQCD, 
                     miniGrad = miniGrad, convCQCD = convCQCD, 
                     convCCD = convCCD, cAmij = cAmij, 
                     maxIterCQCD = maxIterCQCD, maxIterCCD = maxIterCCD, 
@@ -137,8 +138,7 @@ library(reshape)
 Build dataframe for plotting theta.
 ```{r df theta, eval = F}
 firstIdx <- max(which(sapply(thetaSet, 
-                             function(x){sum(x[2 : (d + 1)]) > 1e-4}))[1] - 1, 
-                1)
+                             function(x){sum(x[2 : (d + 1)]) < 1e-4})))
 d <- length(thetaSet[[1]]) - 2
 dfTheta <- matrix(NA, length(idxSet) - firstIdx + 1, d + 1)
 colnames(dfTheta) <- c("lambda", paste0("var", 1 : d))

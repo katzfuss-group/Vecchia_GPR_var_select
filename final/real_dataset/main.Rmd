@@ -28,7 +28,7 @@ source("../func/penalty.R", chdir = T)
 
 Read args
 ```{r read args, eval = T}
-datasetName <- commandArgs(trailingOnly = T)[1]
+datasetName <- "CASP_f991" # commandArgs(trailingOnly = T)[1]
 setLambda <- F
 if(length(commandArgs(trailingOnly = T)) > 1){
   setLambda <- T
@@ -168,6 +168,8 @@ cat("Lasso solution path selected:", length(idxSel), "covariates\n")
 cat("Lasso solution path FPR:", 
     length(setdiff(idxSel, 1 : dTrue)) / length(idxSel), "\n")
 ```
+
+## Regression tree
 
 ```{r regression tree parms est and var select, eval = T}
 source_python("../func/reg_tree.py")
