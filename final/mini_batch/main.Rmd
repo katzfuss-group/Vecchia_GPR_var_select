@@ -47,7 +47,7 @@ tau0 <- 1e-4
 sr0 <- 1e-2
 minPosi <- 1e-8
 m <- 100
-k <- 5
+k <- 3
 miniCQCD <- 128
 miniGrad <- 128
 lambVec <- c(2^(rev(-6: 10)), 0)
@@ -63,7 +63,7 @@ silent <- F
 pen_fun <- pen_avg_brdg
 dpen_fun <- dpen_avg_brdg
 ddpen_fun <- ddpen_avg_brdg
-nAvg <- 5
+nAvg <- 2
 ```
 
 ```{r split Train and Test, eval = T}

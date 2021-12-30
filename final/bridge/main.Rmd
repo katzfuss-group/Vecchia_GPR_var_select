@@ -42,7 +42,7 @@ tau0 <- 1e-4
 sr0 <- 1e-2
 minPosi <- 1e-8
 m <- 100
-k <- 5
+k <- 3
 lambVec <- c(2^(rev(-6: 10)), 0)
 convCQCD <- 1e-4
 convCCD <- 1e-4
