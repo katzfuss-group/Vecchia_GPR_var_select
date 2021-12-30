@@ -128,28 +128,38 @@ fisher_scoring_meanzero_wrap <- function(locsIdx, m, theta, locs, y,
                                          silent = T)
 {
   d <- ncol(locs)
-  # MM and NN
-  # use dummy lb (-Inf) for MM_NN
-  MMNNObj <- MM_NN(theta, locsIdx, locs, y, rep(-Inf, length(theta)), m)
-  # obj func
-  objfun <- function(thetaTrans){
-    likobj <- 
-      vecchia_meanzero_loglik_grad_info(resp_func(thetaTrans), 
-                                        covFn,
-                                        MMNNObj$yOdr, MMNNObj$locsOdrRel, 
-                                        MMNNObj$NNarray)
-    likobj$loglik <- -likobj$loglik
-    likobj$grad <- -c(likobj$grad) * dresp_func(thetaTrans)
-    likobj$info <- likobj$info * outer(dresp_func(thetaTrans),
-                                       dresp_func(thetaTrans))
-    return(likobj)
+  crtIter <- 1
+  ttlIter <- 0
+  while(TRUE){
+    # MM and NN
+    # use dummy lb (-Inf) for MM_NN
+    MMNNObj <- MM_NN(theta, locsIdx, locs, y, rep(-Inf, length(theta)), m)
+    # obj func
+    objfun <- function(thetaTrans){
+      likobj <- 
+        vecchia_meanzero_loglik_grad_info(resp_func(thetaTrans), 
+                                          covFn,
+                                          MMNNObj$yOdr, MMNNObj$locsOdrRel, 
+                                          MMNNObj$NNarray)
+      likobj$loglik <- -likobj$loglik
+      likobj$grad <- -c(likobj$grad) * dresp_func(thetaTrans)
+      likobj$info <- likobj$info * outer(dresp_func(thetaTrans),
+                                         dresp_func(thetaTrans))
+      return(likobj)
+    }
+    # Fisher scoring
+    FisherObj <- fisher_scoring_meanzero(objfun, link_func(MMNNObj$thetaRel), 
+                                         resp_func, silent, conv, crtIter)
+    # Update theta
+    theta <- rep(0, d + 2)
+    theta[c(1, locsIdx + 1, d + 2)] <- resp_func(FisherObj$logparms)
+    # Update iter num
+    ttlIter <- ttlIter + crtIter
+    crtIter <- min(2 * crtIter, maxIter - ttlIter)
+    if(ttlIter == maxIter)
+      break
   }
-  # Fisher scoring
-  FisherObj <- fisher_scoring_meanzero(objfun, link_func(MMNNObj$thetaRel), 
-                                       resp_func, silent, conv, maxIter)
   # return
-  theta <- rep(0, d + 2)
-  theta[c(1, locsIdx + 1, d + 2)] <- resp_func(FisherObj$logparms)
   theta
 }
 
