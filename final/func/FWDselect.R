@@ -27,7 +27,7 @@ forward_selection_fisher <- function(var0, tau0, sr0, locs, y, m, OOS_score,
                                      covFn = "matern25_scaledim_sqrelevance",
                                      link_func = log, resp_func = exp, 
                                      dresp_func = exp,
-                                     silent = F)
+                                     silent = F, cluster = NULL)
 {
   n <- nrow(locs)
   d <- ncol(locs)
@@ -54,13 +54,20 @@ forward_selection_fisher <- function(var0, tau0, sr0, locs, y, m, OOS_score,
     bgnTime <- Sys.time()
     unselectIdx <- setdiff(1 : d, selectIdx)
     idxList <- lapply(unselectIdx, function(x){c(selectIdx, x)})
-    models <- mclapply(idxList, fisher_scoring_meanzero_wrap, mc.cores = 8, 
-                       m = m, theta = theta, locs = locsIn, y = yIn, 
-                       covFn = covFn, maxIter = maxIter, conv = conv, 
-                       link_func = link_func, resp_func = resp_func, 
-                       dresp_func = dresp_func, silent = silent)
-    scores <- mclapply(models, OOS_score, locsIn = locsIn, locsOut = locsOut,
-                       yIn = yIn, yOut = yOut, m = m, convFn = covFn)
+    fisher_scoring_meanzero_wrap_par <- function(idx, ...){
+      source("../func/misc.R", chdir = T)
+      source("../func/fisher_scoring.R", chdir = T)
+      fisher_scoring_meanzero_wrap(idx, ...)
+    }
+    clusterExport(cluster, ls(), envir = environment())
+    models <- parLapply(cluster, idxList, fisher_scoring_meanzero_wrap_par, 
+                        m = m, theta = theta, locs = locsIn, y = yIn, 
+                        covFn = covFn, maxIter = maxIter, conv = conv, 
+                        link_func = link_func, resp_func = resp_func, 
+                        dresp_func = dresp_func, silent = silent)
+    scores <- parLapply(cluster, models, OOS_score, 
+                        locsIn = locsIn, locsOut = locsOut,
+                        yIn = yIn, yOut = yOut, m = m, covFn = covFn)
     scores <- unlist(scores)
     idxBest <- which.min(scores)
     endTime <- Sys.time()

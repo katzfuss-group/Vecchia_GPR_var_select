@@ -31,7 +31,7 @@ PGPR_Yi11 <- function(theta_gen, ngen, locs, y, m, lambVec, pen_fun,
                       spltSeed = NULL, covFn = "matern25_scaledim_sqrelevance", 
                       maxIter = 100, conv = 1e-4, 
                       link_func = log, resp_func = exp, dresp_func = exp, 
-                      silent = T)
+                      silent = T, cluster = NULL)
 {
     d <- ncol(locs)
     # storage vars
@@ -58,12 +58,11 @@ PGPR_Yi11 <- function(theta_gen, ngen, locs, y, m, lambVec, pen_fun,
         covMInvy <- covMInv %*% yIn
         idx <- 1 : length(theta)
         grad <- 
-            unlist(mclapply(idx, 
-                            function(x){
-                                (sum(covMInv * dcovM[, , x]) - 
-                                     sum(t(covMInvy) %*% dcovM[, , x] %*% 
-                                             covMInvy)) / 2},
-                            mc.cores = detectCores() - 1))
+            unlist(lapply(idx, 
+                        function(x){
+                            (sum(covMInv * dcovM[, , x]) - 
+                                 sum(t(covMInvy) %*% dcovM[, , x] %*% 
+                                         covMInvy)) / 2}))
         grad * dresp_func(theta) + dpen_fun(resp_func(theta), lambda) * 
             dresp_func(theta)
     }
@@ -75,14 +74,23 @@ PGPR_Yi11 <- function(theta_gen, ngen, locs, y, m, lambVec, pen_fun,
             cat("lambda =", lambda, "\n")
         }
         # loop over different init val
+        thetaLst <- lapply(1 : ngen, function(x){theta_gen()})
+        if(i > 1){
+            thetaLst[[1]] <- thetaSet[[i - 1]]
+        }
+        clusterExport(cluster, ls(), envir = environment())
+        optLst <- parLapply(cluster, thetaLst, 
+                            function(x){
+                                library(Rcgmin)
+                                library(mvtnorm)
+                                library(GpGp)
+                                Rcgmin(par = link_func(x), 
+                                       fn = obj_func, gr = grad_func, 
+                                       control = list(
+                                           maxit = maxIter, 
+                                           trace = !silent))})
         for(j in 1 : ngen){
-            if(!silent){
-                cat("CG with the", j, "th initial value\n")
-            }
-            theta <- theta_gen()
-            optObj <- Rcgmin(par = link_func(theta), fn = obj_func, 
-                             gr = grad_func, 
-                             control = list(maxit = maxIter, trace = !silent))
+            optObj <- optLst[[j]]
             if(j == 1){
                 thetaFit <- optObj$par
                 obj <- optObj$value
@@ -99,6 +107,11 @@ PGPR_Yi11 <- function(theta_gen, ngen, locs, y, m, lambVec, pen_fun,
         scrVec[i] <-  OOS_score(theta = resp_func(thetaFit), locsIn = locsIn, 
                                 locsOut = locsOut, yIn = yIn, 
                                 yOut = yOut, m = m, covFn = covFn)
+        if(!silent){
+            cat("idx:", idxSet[[i]], "\n")
+            cat("theta:", thetaSet[[i]][c(1, idxSet[[i]] + 1, d + 2)], "\n")
+            cat("score:", scrVec[i], "\n")
+        }
         # check stop
         iOpt <- stop_con_path(scrVec, idxSet, thetaSet)
         if(iOpt > 0)

@@ -1,6 +1,7 @@
 library(scoringRules)
 library(FNN)
 library(reticulate)
+library(GpGp)
 source_python("faiss_NN.py")
 
 #' Make independent predictions at locsOut
