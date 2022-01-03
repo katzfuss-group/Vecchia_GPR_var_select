@@ -160,7 +160,7 @@ Plot the change of `theta` v.s. `lambda`.
 ```{r plot theta-lambda, eval = F}
 nLamb <- length(lambVec)
 scrChg <- 1 - scrVec[(firstIdx + 1) : nLamb] / scrVec[firstIdx : (nLamb - 1)] 
-lambStop <- lambVec[which(scrChg < 0)[1] + firstIdx - 1]
+lambStop <- lambVec[which(scrChg < 0.01)[1] + firstIdx - 1]
 xlabs <- lambVec[seq(from = 1, to = length(lambVec), by = 3)]
 
 ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
