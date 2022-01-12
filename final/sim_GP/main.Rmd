@@ -29,17 +29,16 @@ source("../func/FWDselect.R", chdir = T)
 ```
 
 ```{r sim parms}
-nVec <- c(500) #, 5000, 25000)
-dVec <- c(100) #, 1000)
+nVec <- c(500, 5000, 25000)
+dVec <- c(100, 1000)
 rhoVec <- c(0, 0.9)
 # use seed = 1, 2, 3, ...
-seed <- 1 #as.numeric(commandArgs(trailingOnly = T)[1])
+seed <- as.numeric(commandArgs(trailingOnly = T)[1])
 sigmaSq <- 1
 tauSq <- 0.05^2
 rSq0 <- c(10, 5, 2, 1, 0.5)^2
 d0 <- 5
 covFn <- "matern25_scaledim_sqrelevance"
-
 nTst <- 5000
 ```
 
@@ -53,13 +52,14 @@ k <- 3
 miniCQCD <- 128
 miniGrad <- 128
 nAvg <- 2
-lambVecBrdg <- 2^(rev(-6 : 6))
+lambVecBrdg <- 4^(rev(-6 : 3))
 convCQCD <- 1e-4
 convCCD <- 1e-4
 cAmij <- 1e-4
-maxIterCQCD <- 20
-maxIterElse <- 10
+maxIterCQCD <- 200
+maxIterElse <- 100
 maxIterCCD <- 40
+
 covFn <- "matern25_scaledim_sqrelevance"
 mini <- T
 taper <- T
@@ -71,7 +71,7 @@ ngenPGPR <- 10
 theta_gen <- function(){
   c(var0, (runif(d) * 0.2)^2, tau0) 
 }
-cluster <- makeCluster(detectCores() - 1, outfile = "tmp.out")
+cluster <- makeCluster(min(detectCores() - 1, 16))
 ```
 
 ```{r storage vars, eval = T}
@@ -81,10 +81,16 @@ idx <- 1
 ```
 
 ```{r main loop}
-set.seed(seed)
+if(is.null(seed))
+  stop("Seed should not be NULL\n")
 for(nTrn in nVec)
   for(d in dVec)
     for(rho in rhoVec){
+      if(!silent){
+        cat("======================================================\n")
+        cat("n =", nTrn, "d =", d, "rho =", rho, "\n")
+      }
+      set.seed(seed)
       if(rho != 0){
         locs <- locs_gen_dp(n = nTrn + nTst, d = d, rho = rho)
       }else{
@@ -106,103 +112,136 @@ for(nTrn in nVec)
       pIn = max(1 - 5e3 / nTrn, 0.75)
       rm(spltObj)
       # VREG
-      # bgnTime <- Sys.time()
-      # VeccObj <-
-      #   Vecc_path(
-      #     var0 = var0,
-      #     tau0 = tau0,
-      #     sr0 = sr0,
-      #     locs = locsTrn,
-      #     y = yTrn,
-      #     m = m,
-      #     k = k,
-      #     lambVec = lambVecBrdg,
-      #     pen_fun = pen_fun,
-      #     dpen_fun = dpen_fun,
-      #     ddpen_fun = ddpen_fun,
-      #     OOS_score = OOS_crps,
-      #     stop_con_path = stop_con_OOS1_path,
-      #     stop_con_fb = stop_con_OOS1_fb,
-      #     miniCQCD = miniCQCD,
-      #     miniGrad = miniGrad,
-      #     pIn = pIn,
-      #     spltSeed = 123,
-      #     convCQCD = convCQCD,
-      #     convCCD = convCCD,
-      #     cAmij = cAmij,
-      #     maxIterCQCD = maxIterCQCD,
-      #     maxIterCCD = maxIterCCD,
-      #     covFn = covFn,
-      #     minPosi = minPosi,
-      #     mini = mini,
-      #     taper = taper,
-      #     silent = silent,
-      #     nAvg = nAvg
-      #   )
-      # endTime <- Sys.time()
-      # timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
-      # scr <- OOS_crps(VeccObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
-      # fpos <- length(setdiff(VeccObj$idx, 1 : d0)) / length(VeccObj$idx)
-      # result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "VREG", scr = scr,
-      #                       time = timeUsed, fpos = fpos)
-      # idx <- idx + 1
+      if(!silent){
+        cat("======================================================\n")
+        cat("VREG\n")
+      }
+      bgnTime <- Sys.time()
+      VeccObj <-
+        Vecc_path(
+          var0 = var0,
+          tau0 = tau0,
+          sr0 = sr0,
+          locs = locsTrn,
+          y = yTrn,
+          m = m,
+          k = k,
+          lambVec = lambVecBrdg,
+          pen_fun = pen_fun,
+          dpen_fun = dpen_fun,
+          ddpen_fun = ddpen_fun,
+          OOS_score = OOS_crps,
+          stop_con_path = stop_con_OOS1_path,
+          stop_con_fb = stop_con_OOS1_fb,
+          miniCQCD = miniCQCD,
+          miniGrad = miniGrad,
+          pIn = pIn,
+          spltSeed = 123,
+          convCQCD = convCQCD,
+          convCCD = convCCD,
+          cAmij = cAmij,
+          maxIterCQCD = maxIterCQCD,
+          maxIterCCD = maxIterCCD,
+          covFn = covFn,
+          minPosi = minPosi,
+          mini = mini,
+          taper = taper,
+          silent = silent,
+          nAvg = nAvg
+        )
+      endTime <- Sys.time()
+      timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+      scr <- OOS_crps(VeccObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
+      fpos <- length(setdiff(VeccObj$idx, 1 : d0)) / length(VeccObj$idx)
+      result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "VREG", scr = scr,
+                            time = timeUsed, fpos = fpos)
+      idx <- idx + 1
       # Fisher
-      # bgnTime <- Sys.time()
-      # FishObj <-
-      #   fisher_scoring_meanzero_wrap(locsIdx = 1 : d,
-      #                                m = m,
-      #                                theta = c(var0, rep(sr0, d), tau0),
-      #                                locs = locsTrn,
-      #                                y = yTrn,
-      #                                covFn = covFn,
-      #                                maxIter = maxIterElse,
-      #                                conv = convCQCD,
-      #                                silent = F)
-      # endTime <- Sys.time()
-      # timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
-      # scr <- OOS_crps(FishObj, locsTrn, locsTst, yTrn, yTst, m, covFn)
-      # idxFish <- which(FishObj[2 : (d + 1)] > 1e-7)
-      # fpos <- length(setdiff(idxFish, 1 : d0)) / length(idxFish)
-      # result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "Fisher", scr = scr,
-      #                       time = timeUsed, fpos = fpos)
-      # idx <- idx + 1
+      if(!silent){
+        cat("======================================================\n")
+        cat("Fisher\n")
+      }
+      if((d < 1e3) | (nTrn < 1e3)){
+        bgnTime <- Sys.time()
+        FishObj <-
+          fisher_scoring_meanzero_wrap(locsIdx = 1 : d,
+                                       m = m,
+                                       theta = c(var0, rep(sr0, d), tau0),
+                                       locs = locsTrn,
+                                       y = yTrn,
+                                       covFn = covFn,
+                                       maxIter = maxIterElse,
+                                       conv = convCQCD,
+                                       silent = F)
+        endTime <- Sys.time()
+        timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+        scr <- OOS_crps(FishObj, locsTrn, locsTst, yTrn, yTst, m, covFn)
+        idxFish <- which(FishObj[2 : (d + 1)] > 1e-7)
+        fpos <- length(setdiff(idxFish, 1 : d0)) / length(idxFish)
+        result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "Fisher",
+                              scr = scr, time = timeUsed, fpos = fpos)
+        if(!silent){
+            cat("======================================================\n")
+            cat("Results of Fisher scoring:\n")
+            cat("idx:", idxFish, "\n")
+            cat("theta:", FishObj[c(1, idxFish + 1, d + 2)], "\n")
+            cat("score:", scr, "\n")
+        }
+      }else{
+        result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "Fisher",
+                              scr = NA, time = NA, fpos = NA)
+      }
+      idx <- idx + 1
       # PGPR
-      # if(nTrn < 1e3){
-      #   bgnTime <- Sys.time()
-      #   PGPRObj <-
-      #     PGPR_Yi11(
-      #       theta_gen = theta_gen,
-      #       ngen = ngenPGPR,
-      #       locs = locsTrn,
-      #       y = yTrn,
-      #       m = m,
-      #       lambVec = lambVecBrdg,
-      #       pen_fun = pen_brdg,
-      #       dpen_fun = dpen_brdg,
-      #       ddpen_fun = ddpen_brdg,
-      #       OOS_score = OOS_crps,
-      #       stop_con_path = stop_con_OOS1_path,
-      #       pIn = pIn,
-      #       spltSeed = 123,
-      #       covFn = covFn,
-      #       maxIter = maxIterElse,
-      #       conv = convCQCD,
-      #       silent = silent,
-      #       cluster = cluster
-      #     )
-      #   endTime <- Sys.time()
-      #   timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
-      #   scr <- OOS_crps(PGPRObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
-      #   fpos <- length(setdiff(PGPRObj$idx, 1 : d0)) / length(PGPRObj$idx)
-      #   result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR", scr = scr,
-      #                         time = timeUsed, fpos = fpos)
-      # }else{
-      #   result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR", scr = NA,
-      #                         time = NA, fpos = NA)
-      # }
-      # idx <- idx + 1
+      if(!silent){
+        cat("======================================================\n")
+        cat("PGPR\n")
+      }
+      if((nTrn < 1e3 & d < 1e3) | (nTrn < 1e3)){
+        bgnTime <- Sys.time()
+        PGPRObj <-
+          PGPR_Yi11(
+            theta_gen = theta_gen,
+            ngen = ngenPGPR,
+            locs = locsTrn,
+            y = yTrn,
+            m = m,
+            lambVec = lambVecBrdg,
+            pen_fun = pen_brdg,
+            dpen_fun = dpen_brdg,
+            ddpen_fun = ddpen_brdg,
+            OOS_score = OOS_crps,
+            stop_con_path = stop_con_OOS1_path,
+            pIn = pIn,
+            spltSeed = 123,
+            covFn = covFn,
+            maxIter = maxIterElse,
+            conv = convCQCD,
+            silent = silent,
+            cluster = cluster
+          )
+        endTime <- Sys.time()
+        timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+        if(anyNA(PGPRObj$theta)){
+          result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR", 
+                                scr = NA, time = NA, fpos = NA)
+        }else{
+          scr <- OOS_crps(PGPRObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
+          fpos <- length(setdiff(PGPRObj$idx, 1 : d0)) / length(PGPRObj$idx)
+          result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR", 
+                                scr = scr, time = timeUsed, fpos = fpos)
+        }
+      }else{
+        result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR", scr = NA,
+                              time = NA, fpos = NA)
+      }
+      idx <- idx + 1
       # FWD
-      if(nTrn < 1e4){
+      if(!silent){
+        cat("======================================================\n")
+        cat("FWD\n")
+      }
+      if((nTrn < 1e4 & d < 1e3) | (nTrn < 1e3)){
         bgnTime <- Sys.time()
         FWDObj <-
           forward_selection_fisher(
@@ -240,7 +279,62 @@ for(nTrn in nVec)
 save(result, file = paste0("sim_GP_result_seed", seed, ".RData"))
 ```
 
-
+```{r plot results, eval = F}
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(reshape)
+library(patchwork)
+dataFn <- dir(".", pattern = "sim_GP.*\\.RData")
+rm(rsltAll)
+for(fn in dataFn){
+    load(fn)
+    if(!exists("rsltAll")){
+        rsltAll <- as_tibble(result)
+    }else{
+        rsltAll <- rsltAll %>% bind_rows(as_tibble(result))
+    }
+}
+my_plot <- function(mydf){
+    d <- unique(mydf$d)
+    rho <- unique(mydf$rho)
+    measure <- unique(mydf$measure)
+    dMin <- min(rsltAll$d)
+    plt <- ggplot(data = mydf, 
+                  aes(x = n, y = value, col = mtd, shape = mtd, group = mtd)) +
+        geom_point(size = 5) + 
+        scale_shape(solid = FALSE) +
+        geom_line() +
+        theme(text = element_text(size = 20), legend.title = element_blank(),
+              legend.key.height = unit(3, 'cm'))
+    if(measure == "scr")
+        plt <- plt + ggtitle(paste0(d,  " ",
+                                    switch((rho > 0) + 1, "ind", "dep"), 
+                                    " var")) +
+        scale_y_continuous(trans = log2_trans())
+    if(rho > 0 | d != dMin){
+        plt <- plt + theme(axis.title.y = element_blank())
+    }else
+        plt <- plt + ylab(
+          c("CRPS", "FPos", "Time")[which(c("scr", "fpos", "time") == measure)])
+    if(measure != "time"){
+        plt <- plt + 
+            theme(axis.title.x = element_blank(), 
+                  axis.ticks.x=element_blank(), axis.text.x=element_blank())
+    }
+    plt
+}
+plt <- rsltAll %>% mutate(n = factor(n)) %>% 
+  group_by(n, d, rho, mtd) %>% 
+  summarise(scr = mean(scr), fpos = mean(fpos), time = mean(time)) %>% 
+  pivot_longer(cols = c("scr", "time", "fpos"), names_to = "measure") %>% 
+  mutate(measure = factor(measure, levels = c("scr", "fpos", "time"))) %>%
+  group_by(measure, d, rho) %>% group_split() %>% map(my_plot) %>% 
+  reduce(get("+"))
+plt + plot_layout(ncol = 4, guides = "collect")
+ggsave("sim_result.pdf", height = 10, width = 14)
+```
 
 
 
