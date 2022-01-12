@@ -1,5 +1,7 @@
 library(mvtnorm)
 library(GpGp)
+library(parallel)
+library(mvnfast)
 source("piston_func.R")
 
 #' Generate y based on the Piston function
@@ -23,5 +25,12 @@ Pist_gen <- function(locs){
 MVN_gen <- function(locs, parms, covFn){
   n <- nrow(locs)
   covM <- get(covFn)(parms, locs)
-  as.vector(rmvnorm(n = 1, sigma = covM))
+  # as.vector(rmvnorm(n = 1, sigma = covM))
+  cat("Generating y\n")
+  timeUsed <- system.time(
+    result <- as.vector(rmvn(n = 1, mu = rep(0, n), 
+                             sigma = covM,
+                             ncores = detectCores() - 1)))[[3]]
+  cat("Generating y used", timeUsed, "seconds\n")
+  result
 }

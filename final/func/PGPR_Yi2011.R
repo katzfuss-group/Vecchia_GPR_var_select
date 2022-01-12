@@ -48,11 +48,13 @@ PGPR_Yi11 <- function(theta_gen, ngen, locs, y, m, lambVec, pen_fun,
     obj_func <- function(theta)
     {
         covM <- get(covFn)(resp_func(theta), locsIn)
+        diag(covM) <- diag(covM) * (1 + 1e-8) + 1e-8
         - dmvnorm(yIn, sigma = covM, log = T) + pen_fun(resp_func(theta), lambda)
     }
     grad_func <- function(theta)
     {
         covM <- get(covFn)(resp_func(theta), locsIn)
+        diag(covM) <- diag(covM) * (1 + 1e-8) + 1e-8
         dcovM <- get(paste0("d_", covFn))(resp_func(theta), locsIn)
         covMInv <- solve(covM)
         covMInvy <- covMInv %*% yIn
@@ -84,13 +86,24 @@ PGPR_Yi11 <- function(theta_gen, ngen, locs, y, m, lambVec, pen_fun,
                                 library(Rcgmin)
                                 library(mvtnorm)
                                 library(GpGp)
-                                Rcgmin(par = link_func(x), 
-                                       fn = obj_func, gr = grad_func, 
-                                       control = list(
-                                           maxit = maxIter, 
-                                           trace = !silent))})
+                                tryCatch(
+                                    Rcgmin(par = link_func(x), 
+                                           fn = obj_func, 
+                                           gr = grad_func, 
+                                           control = list(
+                                               maxit = maxIter, 
+                                               trace = !silent)),
+                                    error = function(con){
+                                        message(conditionMessage(con))
+                                        list(value = NA,
+                                             par = NA)
+                                    }
+                                )
+                                })
         for(j in 1 : ngen){
             optObj <- optLst[[j]]
+            if(is.na(optObj$value))
+                optObj$value <- Inf
             if(j == 1){
                 thetaFit <- optObj$par
                 obj <- optObj$value
@@ -102,15 +115,20 @@ PGPR_Yi11 <- function(theta_gen, ngen, locs, y, m, lambVec, pen_fun,
             }
         }
         # Store results
-        idxSet[[i]] <- which(resp_func(thetaFit[2 : (d + 1)]) > 1e-7)
-        thetaSet[[i]] <- resp_func(thetaFit) 
-        scrVec[i] <-  OOS_score(theta = resp_func(thetaFit), locsIn = locsIn, 
-                                locsOut = locsOut, yIn = yIn, 
-                                yOut = yOut, m = m, covFn = covFn)
-        if(!silent){
-            cat("idx:", idxSet[[i]], "\n")
-            cat("theta:", thetaSet[[i]][c(1, idxSet[[i]] + 1, d + 2)], "\n")
-            cat("score:", scrVec[i], "\n")
+        if(anyNA(thetaFit)){
+            cat("NA produced in Yi2011. Early return\n")
+            return(list(lambda = NA, scr = NA, idx = NA, theta = NA))
+        }else{
+            idxSet[[i]] <- which(resp_func(thetaFit[2 : (d + 1)]) > 1e-7)
+            thetaSet[[i]] <- resp_func(thetaFit) 
+            scrVec[i] <-  OOS_score(theta = resp_func(thetaFit), locsIn = locsIn, 
+                                    locsOut = locsOut, yIn = yIn, 
+                                    yOut = yOut, m = m, covFn = covFn)
+            if(!silent){
+                cat("idx:", idxSet[[i]], "\n")
+                cat("theta:", thetaSet[[i]][c(1, idxSet[[i]] + 1, d + 2)], "\n")
+                cat("score:", scrVec[i], "\n")
+            }
         }
         # check stop
         iOpt <- stop_con_path(scrVec, idxSet, thetaSet)
