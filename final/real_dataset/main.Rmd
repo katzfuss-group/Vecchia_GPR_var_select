@@ -28,7 +28,7 @@ source("../func/penalty.R", chdir = T)
 
 Read args
 ```{r read args, eval = T}
-datasetName <- "CASP_f991" # commandArgs(trailingOnly = T)[1]
+datasetName <- "temp" # commandArgs(trailingOnly = T)[1]
 setLambda <- F
 if(length(commandArgs(trailingOnly = T)) > 1){
   setLambda <- T

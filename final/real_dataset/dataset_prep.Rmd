@@ -608,7 +608,6 @@ Some EDA on the distribution of `y`.
 ```{r EDA on y, eval = F}
 hist(y)
 ```
-Using the original scale should be infeasible, whereas the log-scale probably works. 
 
 Create fake covariates.
 ```{r fake covariates for, eval = T}
@@ -641,8 +640,6 @@ Decide `nTrain` and `nTest`
 set.seed(123)
 nTest <- round(n * 0.25)
 nTrain <- n - nTest
-idxTrain <- sample(1 : n, nTrain, replace = F)
-idxTest <- setdiff(1 : n, idxTrain)
 ```
 
 Write into files, train/test with/without fake predictors
@@ -670,7 +667,86 @@ write.table(x = cbind(X, XFkDep, y)[(1 + nTrain) : (nTrain + nTest), ],
             file = gsub("\\.", paste0("_f", dFake, "_", "dep_test."), dataFn))
 ```
 
+## Temperature
 
+```{r read and rearrange cols, eval = T}
+library(tidyverse)
+trnXFn <- "../../data/temp_train.inputs_processed"
+trnyFn <- "../../data/temp_train.targets_processed"
+tstXFn <- "../../data/temp_valid.inputs_processed"
+tstyFn <- "../../data/temp_valid.targets_processed"
+dataLst <- map(list(trnXFn, trnyFn, tstXFn, tstyFn), 
+            function(x){read.csv(x, header = F)})
+```
+
+Some EDA on the distribution of `y`.
+```{r EDA on y, eval = F}
+hist(dataLst[[2]][, 1])
+hist(dataLst[[4]][, 1])
+```
+
+Create fake covariates.
+```{r fake covariates for, eval = T}
+set.seed(123)
+X <- rbind(dataLst[[1]], dataLst[[3]])
+y <- c(dataLst[[2]][, 1], dataLst[[4]][, 1])
+d <- ncol(X)
+n <- nrow(X)
+dFake <- 1e3 - d
+if(dFake > 0){
+  XFkIndep <- matrix(rnorm(dFake * n), n, dFake)
+  weightMat <- matrix(runif(d * dFake), d, dFake)
+  XFkDep <- as.matrix(X) %*% weightMat 
+  XFkDep <- apply(XFkDep, 2, 
+                  function(x){x + rnorm(length(x), sd = sd(x))})
+  d <- d + dFake
+}
+```
+
+Standardize covariates.
+```{r standardize the covariates, eval = T}
+constColIdx <- which(apply(X, 2, sd) == 0)
+if(length(constColIdx) > 0){
+  X <- X[, -constColIdx]
+  d <- d - length(constColIdx)
+}
+X <- apply(X, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkIndep <- apply(XFkIndep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+XFkDep <- apply(XFkDep, MARGIN = 2, function(x){(x - mean(x)) / sd(x)})
+```
+
+Decide `nTrain` and `nTest`
+```{r nTrain and nTest, eval = T}
+set.seed(123)
+nTest <- nrow(dataLst[[3]])
+nTrain <- nrow(dataLst[[1]])
+```
+
+Write into files, train/test with/without fake predictors
+```{r write into files, eval = T}
+dir.create(file.path(".", "data"), showWarnings = FALSE)
+dataFn <- "data/temp.csv"
+write.table(x = cbind(X, XFkIndep, y)[1 : nTrain, ], row.names = F, sep = ",",
+          col.names = F, 
+          file = gsub("\\.", paste0("_f", dFake, "_", "train."), dataFn))
+write.table(x = cbind(X, y)[1 : nTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_train.", dataFn))
+write.table(x = cbind(X, XFkIndep, y)[(1 + nTrain) : (nTrain + nTest), ],
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "test."), dataFn))
+write.table(x = cbind(X, y)[(1 + nTrain) : (nTrain + nTest), ], 
+            row.names = F, sep = ",",
+            col.names = F, file = gsub("\\.", "_test.", dataFn))
+write.table(x = cbind(X, XFkDep, y)[1 : nTrain, ], 
+            row.names = F, sep = ",",
+            col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_train."), dataFn))
+write.table(x = cbind(X, XFkDep, y)[(1 + nTrain) : (nTrain + nTest), ],
+            row.names = F, sep = ",", col.names = F, 
+            file = gsub("\\.", paste0("_f", dFake, "_", "dep_test."), dataFn))
+```
 
 
 
