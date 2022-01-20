@@ -1,0 +1,201 @@
+---
+title: "Compare QCCD with Fisher scoring"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r clean environment}
+rm(list = ls())
+```
+
+## Overview
+
+Compare QCCD with Fisher scoring with $d \le 100$.
+
+## Preparation
+
+```{r install the moderated GpGp Pkg}
+source("../func/misc.R", chdir = T)
+source("../func/locs_gen.R", chdir = T)
+source("../func/y_gen.R", chdir = T)
+source("../func/penalty.R", chdir = T)
+source("../func/CQCD.R", chdir = T)
+source("../func/fisher_scoring.R", chdir = T)
+```
+
+Simulate GP.
+```{r simulate GP, eval = T}
+set.seed(123)
+n <- 1e4
+m <- 100
+d <- as.numeric(commandArgs(trailingOnly = T)[1])
+rho <- 0
+rSq <- c(10, 5, 2, 1, 0.5, rep(0, d - 5))^2
+sigmasq <- 1.0 # variance
+tausq <- 0.05^2 # nugget
+covFn <- "matern25_scaledim_sqrelevance"
+if(rho != 0){
+  locs <- locs_gen_dp(n, d, rho)
+}else{
+  locs <- locs_gen_idp(n, d)
+}
+y <- MVN_gen(locs, c(sigmasq, rSq, tausq), covFn)
+```
+
+```{r init parms}
+sigmasqInit <- 0.25
+tausqInit <- 0.01
+rsqInit <- 0.01
+```
+
+Bridge penalty.
+```{r logistic penalty, eval = T}
+lambda <- 32
+penfun <- function(x){pen_brdg(x, lambda)}
+dpenfun <- function(x){dpen_brdg(x, lambda)} 
+ddpenfun <- function(x){ddpen_brdg(x, lambda)} 
+```
+
+## Optimization with QCCD
+
+```{r define a lb}
+lb <- c(1e-8, 1e-8, rep(0, d - 1), 1e-8)
+```
+
+```{r optimization with QCCD, eval = T}
+set.seed(123)
+theta <- c(sigmasqInit, rep(rsqInit, d), tausqInit)
+maxIter <- 16
+rsltQCCD <- list()
+for(crtIter in c(1 : maxIter))
+{
+  # reorder at each iteration
+  locsScal <- locs %*% diag(sqrt(theta[2 : (d + 1)]))
+  odr <- GpGp::order_maxmin(locsScal)
+  yOdr <- y[odr]
+  locsOdr <- locs[odr, ]
+  locsScalOdr <- locsScal[odr, ]
+  NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
+  # Define functions for parameter estimation in the outer loop
+  objfun <- function(theta){
+    likObj <- GpGp::vecchia_meanzero_loglik(theta, 
+                                            "matern25_scaledim_sqrelevance",
+                                            yOdr, locsOdr, 
+                                            NNarray) 
+      likObj$loglik <- likObj$loglik - penfun(theta)
+    likObj
+  }
+  objfun_gdfm <- function(theta){
+    likObj <- GpGp::vecchia_meanzero_loglik_grad_info(theta, 
+                                            "matern25_scaledim_sqrelevance",
+                                            yOdr, locsOdr, 
+                                            NNarray) 
+      likObj$loglik <- likObj$loglik - penfun(theta)
+      likObj$grad <- likObj$grad - dpenfun(theta)
+      likObj$info <- likObj$info + ddpenfun(theta)
+    likObj
+  }
+  optObj <- CQCD(objfun, objfun_gdfm, theta, maxIterOut = 1, lb = lb,
+                 maxIterIn = 40)
+  theta <- optObj$covparms
+  rsltQCCD[[crtIter]] <- theta
+}
+cat(theta, "\n")
+```
+
+## Optimization with Fisher
+
+Link functions for Fisher scoring.
+```{r link funcs}
+linkfuns <- GpGp::get_linkfun("matern25_scaledim")
+link <- linkfuns$link
+dlink <- linkfuns$dlink
+invlink <- linkfuns$invlink
+```
+
+```{r Fisher scoring}
+set.seed(123)
+theta <- c(sigmasqInit, rep(rsqInit, d), tausqInit)
+thetaTrans <- invlink(theta)
+maxIter <- 16
+rsltFish <- list()
+for(crtIter in c(1 : maxIter))
+{
+  # reorder at each iteration
+  locsScal <- locs %*% diag(sqrt(link(thetaTrans[2 : (d + 1)])))
+  odr <- GpGp::order_maxmin(locsScal)
+  yOdr <- y[odr]
+  locsOdr <- locs[odr, ]
+  locsScalOdr <- locsScal[odr, ]
+  NNarray <- GpGp::find_ordered_nn(locsScalOdr, m = m)
+  # Define functions for parameter estimation in the outer loop
+  objfun <- function(thetaTrans){
+    likobj <- 
+      GpGp::vecchia_meanzero_loglik_grad_info(link(thetaTrans), 
+                                              "matern25_scaledim_sqrelevance",
+                                              yOdr, locsOdr, 
+                                              NNarray)
+      likobj$loglik <- -likobj$loglik + penfun(link(thetaTrans))
+      likobj$grad <- -c(likobj$grad) * dlink(thetaTrans) + 
+        dpenfun(link(thetaTrans)) * dlink(thetaTrans)
+      likobj$info <- likobj$info*outer(dlink(thetaTrans),dlink(thetaTrans))
+      return(likobj)
+  }
+  FisherObj <- fisher_scoring_meanzero(objfun, thetaTrans, link, F, 1e-4, 1)
+  thetaTrans <- FisherObj$logparms
+  rsltFish[[crtIter]] <- link(thetaTrans)
+}
+```
+
+## Save results
+```{r save the result}
+save(list = c("n", "d", "rsqInit", "rsltQCCD", "rsltFish"), 
+     file = paste0("CQCD_Fisher_cmp_", d, ".RData"))
+```
+
+## Plot 
+
+```{r plot, eval = F}
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(reshape)
+
+my_plot <- function(rslt, d, fnPre){
+  dfTheta <- matrix(NA, length(rslt) + 1, d + 1)
+  colnames(dfTheta) <- c("iter", paste0("var", 1 : d))
+  for(i in 1 : length(rslt))
+  {
+    dfTheta[i, 1] <- i
+    dfTheta[i, 2 : (d + 1)] <- sqrt(rslt[[i]][2 : (d + 1)]) 
+  }
+  dfTheta[i + 1, 1] <- 0
+  dfTheta[i + 1, 2 : (d + 1)] <- sqrt(rsqInit)
+  
+  dfTheta <- as.data.frame(dfTheta)
+  dfTheta <- melt(dfTheta, id = c(1))
+  colnames(dfTheta) <- c("iter", "varID", "relevance")
+  
+  dfThetaTrue <- data.frame("varID" = paste0("var", 1 : d), 
+                            "trueVal" = sqrt(rSq))
+  
+  ggplot(data = dfTheta, aes(x = iter, y = relevance, col = varID)) +
+    geom_line() +
+    geom_hline(mapping = aes(col = varID, yintercept = trueVal), 
+               data = dfThetaTrue,
+               size = 0.5, lty = "dashed") + 
+    geom_hline(yintercept = 0, size = 0.5) + 
+    scale_y_continuous(trans = pseudo_log_trans(sigma = 0.025),
+                       breaks = unique(c(sqrt(rsqInit), sqrt(rSq)))) +
+    scale_color_manual(breaks = unique(dfThetaTrue$varID),
+                       values = c(brewer.pal(5, 'Dark2'), rep("grey", d - 5))) +
+    theme(legend.position = "none", text = element_text(size = 20))
+  ggsave(paste0(fnPre, "_d_", d, ".pdf"), width = 7, height = 5)
+}
+
+my_plot(rsltQCCD, d, "QCCD")
+my_plot(rsltFish, d, "Fisher_scoring")
+```
