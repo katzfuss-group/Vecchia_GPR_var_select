@@ -170,12 +170,12 @@ ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
     breaks = xlabs,
     labels = sprintf("2^%.0f", log2(xlabs))) +
   scale_color_manual(breaks = unique(dfThetaTrue$varID),
-                     values = c(rainbow(5), rep("grey", d - 5))) +
+                     values = c(brewer.pal(5, 'Dark2'), rep("grey", d - 5))) +
   theme(legend.position = "none", text = element_text(size = 20))
 if(rho != 0){
-  figFn <- paste0("CQCD_bridge_dep_", n, "_", d, ".pdf")
+  figFn <- paste0("QCCD_bridge_dep_", n, "_", d, ".pdf")
 }else{
-  figFn <- paste0("CQCD_bridge_", n, "_", d, ".pdf")
+  figFn <- paste0("QCCD_bridge_", n, "_", d, ".pdf")
 }
 ggsave(filename = figFn, width = 7, height = 5)
 ```

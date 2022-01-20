@@ -198,7 +198,7 @@ for(i in 2 : (d + 1)){
     scale_x_continuous(trans = pseudo_log_trans(sigma = 1),
                        breaks = batchSzVec) +
     scale_color_manual(breaks = unique(df$mtdID),
-                       values = rainbow(4)) +
+                       values = brewer.pal(4, 'Dark2')) +
     xlab("batch size") +
     theme(legend.position = "none",
           axis.title.y = element_blank(),

@@ -43,7 +43,7 @@ Compute the gradient.
 ```{r compute grad, eval = T}
 gradList <- list()
 gradMinibatList <- list()
-batchSz <- 500
+batchSz <- 128
 idxMinibat <- sample(1 : n, batchSz)
 idxSel <- c()
 idxSelMinibat <- c()
@@ -113,7 +113,7 @@ Compute the gradient.
 ```{r compute grad dep, eval = T}
 gradDepList <- list()
 gradMinibatDepList <- list()
-batchSz <- 500
+batchSz <- 128
 idxMinibat <- sample(1 : n, batchSz)
 idxSel <- c()
 idxSelMinibat <- c()
@@ -178,22 +178,28 @@ library(RColorBrewer)
 library(scales)
 library(reshape)
 
-dfGrad <- matrix(NA, d * d0 * 2, 3)
+dfGrad <- matrix(NA, d * d0 * 2, 4)
 dfGrad[, 1] <- kronecker(c(1 : (d0 * 2)), rep(1, d))
 dfGrad[, 2] <- c(unlist(lapply(gradList, 
-                               function(x){x / max(abs(x), na.rm = T)})),
+                               function(x){(x - min(x, na.rm = T)) / 
+                                   (max(x, na.rm = T) - min(x, na.rm = T))})),
                  unlist(lapply(gradDepList, 
-                               function(x){x / max(abs(x), na.rm = T)})))
+                               function(x){(x - min(x, na.rm = T)) / 
+                                   (max(x, na.rm = T) - min(x, na.rm = T))})))
 dfGrad[, 3] <- kronecker(rep(1, d0 * 2), c(1 : d0, rep(d0 + 1, d - d0)))
-colnames(dfGrad) <- c("ID", "grad", "col")
+dfGrad[, 4] <- kronecker(rep(1, d0 * 2), c(rep(4, d0), rep(1, d - d0)))
+colnames(dfGrad) <- c("ID", "grad", "col", "shape")
 dfGrad <- as.data.frame(dfGrad)
 dfGrad$col <- as.factor(dfGrad$col)
 dfGrad$ID <- as.factor(dfGrad$ID)
+dfGrad$shape <- as.factor(dfGrad$shape)
 
-ggplot(data = dfGrad, aes(x = ID, y = grad, col = col)) +
-  geom_point() +
+ggplot(data = dfGrad, aes(x = ID, y = grad, col = col, shape = shape)) +
+  geom_point(size = 5) +
   scale_color_manual(breaks = unique(dfGrad$col),
-                     values = c(rainbow(d0), rep("grey", d - d0))) +
+                     values = c(brewer.pal(d0, 'Dark2'), rep("grey", d - d0))) +
+  scale_shape_manual(breaks = unique(dfGrad$shape),
+                     values = c("cross", "circle")) +
   geom_vline(xintercept = d0 + 0.5, col = "red", lty = "dashed") +
   xlab(expression(paste(d[1], " (Left: independent | Right: dependent)"))) + 
   ylab("Normalized Gradient") + 
@@ -204,22 +210,28 @@ ggsave(paste0("gradient_magnitude.pdf"), width = 7, height = 5)
 ```
 
 ```{r plot gradient mini-bath, eval = F}
-dfGrad <- matrix(NA, d * d0 * 2, 3)
+dfGrad <- matrix(NA, d * d0 * 2, 4)
 dfGrad[, 1] <- kronecker(c(1 : (d0 * 2)), rep(1, d))
 dfGrad[, 2] <- c(unlist(lapply(gradMinibatList, 
-                               function(x){x / max(abs(x), na.rm = T)})),
+                               function(x){(x - min(x, na.rm = T)) / 
+                                   (max(x, na.rm = T) - min(x, na.rm = T))})),
                  unlist(lapply(gradMinibatDepList, 
-                               function(x){x / max(abs(x), na.rm = T)})))
+                               function(x){(x - min(x, na.rm = T)) / 
+                                   (max(x, na.rm = T) - min(x, na.rm = T))})))
 dfGrad[, 3] <- kronecker(rep(1, d0 * 2), c(1 : d0, rep(d0 + 1, d - d0)))
-colnames(dfGrad) <- c("ID", "grad", "col")
+dfGrad[, 4] <- kronecker(rep(1, d0 * 2), c(rep(4, d0), rep(1, d - d0)))
+colnames(dfGrad) <- c("ID", "grad", "col", "shape")
 dfGrad <- as.data.frame(dfGrad)
 dfGrad$col <- as.factor(dfGrad$col)
 dfGrad$ID <- as.factor(dfGrad$ID)
+dfGrad$shape <- as.factor(dfGrad$shape)
 
-ggplot(data = dfGrad, aes(x = ID, y = grad, col = col)) +
-  geom_point() +
+ggplot(data = dfGrad, aes(x = ID, y = grad, col = col, shape = shape)) +
+  geom_point(size = 5) +
   scale_color_manual(breaks = unique(dfGrad$col),
-                     values = c(rainbow(d0), rep("grey", d - d0))) +
+                     values = c(brewer.pal(d0, 'Dark2'), rep("grey", d - d0))) +
+  scale_shape_manual(breaks = unique(dfGrad$shape),
+                     values = c("cross", "circle")) +
   geom_vline(xintercept = d0 + 0.5, col = "red", lty = "dashed") +
   xlab(expression(paste(d[1], " (Left: independent | Right: dependent)"))) + 
   ylab("Normalized Gradient") + 
