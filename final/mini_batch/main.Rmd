@@ -98,7 +98,7 @@ for(i in 1 : length(lambVec)){
   optObj <- fwd_bwd(idx = idx, theta = theta, sr0 = sr0, locsIn = locsIn, 
                     locsOut = locsOut, yIn = yIn, yOut = yOut, m = m, k = k, 
                     lambda = lambda, pen_fun = pen_fun, dpen_fun = dpen_fun, 
-                    ddpen_fun = ddpen_fun, OOS_score = OOS_crps, 
+                    ddpen_fun = ddpen_fun, OOS_score = OOS_rmse, 
                     stop_con_fb = stop_con_OOS0_fb, miniCQCD = miniCQCD, 
                     miniGrad = miniGrad, convCQCD = convCQCD, 
                     convCCD = convCCD, cAmij = cAmij, 
@@ -160,7 +160,9 @@ Plot the change of `theta` v.s. `lambda`.
 ```{r plot theta-lambda, eval = F}
 nLamb <- length(lambVec)
 scrChg <- 1 - scrVec[(firstIdx + 1) : nLamb] / scrVec[firstIdx : (nLamb - 1)] 
-lambStop <- lambVec[which(scrChg < 0.01)[1] + firstIdx - 1]
+newVar <- c(sapply((firstIdx + 1) : nLamb, function(i)
+  {!all(idxSet[[i]] %in% idxSet[[i - 1]])}))
+lambStop <- lambVec[which(scrChg < 0.01 & newVar)[1] + firstIdx - 1]
 xlabs <- lambVec[seq(from = 1, to = length(lambVec), by = 3)]
 
 ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +

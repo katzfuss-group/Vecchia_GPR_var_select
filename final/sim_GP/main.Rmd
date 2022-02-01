@@ -67,11 +67,16 @@ silent <- F
 pen_fun <- pen_avg_brdg
 dpen_fun <- dpen_avg_brdg
 ddpen_fun <- ddpen_avg_brdg
+stop_con_path <- function(scrVec, idxSet, thetaSet){
+  min(stop_con_NEW_path(scrVec, idxSet, thetaSet), 
+      stop_con_OOS1_path(scrVec, idxSet, thetaSet))
+}
 ngenPGPR <- 10
 theta_gen <- function(){
   c(var0, (runif(d) * 0.2)^2, tau0) 
 }
-cluster <- makeCluster(min(detectCores() - 1, 16))
+cluster <- makeCluster(min(detectCores() - 1, 16), 
+                       outfile = paste0("tmp_seed", seed, ".out"))
 ```
 
 ```{r storage vars, eval = T}
@@ -130,8 +135,8 @@ for(nTrn in nVec)
           pen_fun = pen_fun,
           dpen_fun = dpen_fun,
           ddpen_fun = ddpen_fun,
-          OOS_score = OOS_crps,
-          stop_con_path = stop_con_OOS1_path,
+          OOS_score = OOS_rmse,
+          stop_con_path = stop_con_path,
           stop_con_fb = stop_con_OOS1_fb,
           miniCQCD = miniCQCD,
           miniGrad = miniGrad,
@@ -151,7 +156,7 @@ for(nTrn in nVec)
         )
       endTime <- Sys.time()
       timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
-      scr <- OOS_crps(VeccObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
+      scr <- OOS_rmse(VeccObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
       fpos <- length(setdiff(VeccObj$idx, 1 : d0)) / length(VeccObj$idx)
       result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "VREG", scr = scr,
                             time = timeUsed, fpos = fpos)
@@ -161,7 +166,7 @@ for(nTrn in nVec)
         cat("======================================================\n")
         cat("Fisher\n")
       }
-      if((d < 1e3) | (nTrn < 1e3)){
+      if((d < 1e3) | (nTrn < 1e4)){
         bgnTime <- Sys.time()
         FishObj <-
           fisher_scoring_meanzero_wrap(locsIdx = 1 : d,
@@ -175,7 +180,7 @@ for(nTrn in nVec)
                                        silent = F)
         endTime <- Sys.time()
         timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
-        scr <- OOS_crps(FishObj, locsTrn, locsTst, yTrn, yTst, m, covFn)
+        scr <- OOS_rmse(FishObj, locsTrn, locsTst, yTrn, yTst, m, covFn)
         idxFish <- which(FishObj[2 : (d + 1)] > 1e-7)
         fpos <- length(setdiff(idxFish, 1 : d0)) / length(idxFish)
         result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "Fisher",
@@ -197,7 +202,7 @@ for(nTrn in nVec)
         cat("======================================================\n")
         cat("PGPR\n")
       }
-      if((nTrn < 1e3 & d < 1e3) | (nTrn < 1e3)){
+      if(nTrn < 1e3){
         bgnTime <- Sys.time()
         PGPRObj <-
           PGPR_Yi11(
@@ -210,8 +215,8 @@ for(nTrn in nVec)
             pen_fun = pen_brdg,
             dpen_fun = dpen_brdg,
             ddpen_fun = ddpen_brdg,
-            OOS_score = OOS_crps,
-            stop_con_path = stop_con_OOS1_path,
+            OOS_score = OOS_rmse,
+            stop_con_path = stop_con_path,
             pIn = pIn,
             spltSeed = 123,
             covFn = covFn,
@@ -223,12 +228,12 @@ for(nTrn in nVec)
         endTime <- Sys.time()
         timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
         if(anyNA(PGPRObj$theta)){
-          result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR", 
+          result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR",
                                 scr = NA, time = NA, fpos = NA)
         }else{
-          scr <- OOS_crps(PGPRObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
+          scr <- OOS_rmse(PGPRObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
           fpos <- length(setdiff(PGPRObj$idx, 1 : d0)) / length(PGPRObj$idx)
-          result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR", 
+          result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR",
                                 scr = scr, time = timeUsed, fpos = fpos)
         }
       }else{
@@ -251,8 +256,8 @@ for(nTrn in nVec)
             locs = locsTrn,
             y = yTrn,
             m = m,
-            OOS_score = OOS_crps,
-            stop_con_path = stop_con_OOS1_path,
+            OOS_score = OOS_rmse,
+            stop_con_path = stop_con_path,
             pIn = pIn,
             spltSeed = 123,
             covFn = covFn,
@@ -263,7 +268,7 @@ for(nTrn in nVec)
           )
         endTime <- Sys.time()
         timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
-        scr <- OOS_crps(FWDObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
+        scr <- OOS_rmse(FWDObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
         fpos <- length(setdiff(FWDObj$idx, 1 : d0)) / length(FWDObj$idx)
         result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "FWD", scr = scr,
                               time = timeUsed, fpos = fpos)
@@ -296,6 +301,7 @@ for(fn in dataFn){
         rsltAll <- rsltAll %>% bind_rows(as_tibble(result))
     }
 }
+rsltAll$mtd[rsltAll$mtd == "VREG"] <- "RESTIVE"
 my_plot <- function(mydf){
     d <- unique(mydf$d)
     rho <- unique(mydf$rho)
@@ -317,7 +323,7 @@ my_plot <- function(mydf){
         plt <- plt + theme(axis.title.y = element_blank())
     }else
         plt <- plt + ylab(
-          c("CRPS", "FPos", "Time")[which(c("scr", "fpos", "time") == measure)])
+          c("RMSE", "FPos", "Time")[which(c("scr", "fpos", "time") == measure)])
     if(measure != "time"){
         plt <- plt + 
             theme(axis.title.x = element_blank(), 
