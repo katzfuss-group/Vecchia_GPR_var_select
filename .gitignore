@@ -1,7 +1,6 @@
 .Rhistory
 *.RData
 *.pdf
-*.R
 *.html
 *.DS_Store
 *.csv
