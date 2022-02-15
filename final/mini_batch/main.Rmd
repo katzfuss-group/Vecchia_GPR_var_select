@@ -178,7 +178,8 @@ ggplot(data = dfTheta, aes(x = lambda, y = relevance, col = varID)) +
   scale_x_continuous(trans = pseudo_log_trans(
     sigma = lambVec[length(lambVec) - 1]),
     breaks = xlabs,
-    labels = sprintf("2^%.0f", log2(xlabs))) +
+    labels = sprintf("2^%.0f", log2(xlabs)),
+    name = expression(lambda)) +
   scale_color_manual(breaks = unique(dfThetaTrue$varID),
                      values = c(brewer.pal(5, 'Dark2'), rep("grey", d - 5))) +
   theme(legend.position = "none", text = element_text(size = 20))

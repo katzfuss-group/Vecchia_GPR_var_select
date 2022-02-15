@@ -189,10 +189,11 @@ my_plot <- function(rslt, d, fnPre){
                size = 0.5, lty = "dashed") + 
     geom_hline(yintercept = 0, size = 0.5) + 
     scale_y_continuous(trans = pseudo_log_trans(sigma = 0.025),
-                       breaks = unique(c(sqrt(rsqInit), sqrt(rSq)))) +
+                       breaks = unique(c(sqrt(rsqInit), sqrt(rSq))),
+                       limits = c(0, 30)) +
     scale_color_manual(breaks = unique(dfThetaTrue$varID),
                        values = c(brewer.pal(5, 'Dark2'), rep("grey", d - 5))) +
-    theme(legend.position = "none", text = element_text(size = 20))
+    theme(legend.position = "none", text = element_text(size = 20)) 
   ggsave(paste0(fnPre, "_d_", d, ".pdf"), width = 7, height = 5)
 }
 
