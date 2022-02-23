@@ -8,4 +8,4 @@ For `real_dataset`, the raw data should be first downloaded (e.g., from UCI) to 
 
 
 ## Reference
-Cao, Guinness, Genton, and Katzfuss (2022). Scalable Gaussian-process regression and variable selection using Vecchia approximations. [*arXiv:2108.04211*](https://arxiv.org/abs/2108.04211).
+Cao, Guinness, Genton, and Katzfuss (2022). Scalable Gaussian-process regression and variable selection using Vecchia approximations. 
