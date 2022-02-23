@@ -2,7 +2,7 @@
 
 ## Prerequisite
 
-We extended the `GpGp` R package, which has not been pulled into its main repo. To install the version of `GpGp` package with the necessary extensions, please clone and install the `squared_relevance` branch of [this repository](https://github.com/katzfuss-group/GpGp.git).
+We have made extensions to the `GpGp` R package, which have not been pulled into the main GpGp repo. To install our version of `GpGp` package with the necessary extensions, please clone and install the `squared_relevance` branch of [this repository](https://github.com/katzfuss-group/GpGp.git).
 
 ## Numerical results
 
