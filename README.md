@@ -1,5 +1,9 @@
 # Vecchia Gaussian Process Regression and Variable Selection
 
+## Prerequisite
+
+We extended the `GpGp` R package, which has not been pulled into its main repo. To install the version of `GpGp` package with the necessary extensions, please clone and install the `squared_relevance` branch of [this repository](https://github.com/katzfuss-group/GpGp.git).
+
 To reproduce the figures and results in Cao, Guinness, Genton, Katzfuss (2022), please enter the corresponding directory and run the `.R` or `.Rmd` file. 
 
 For `GP_approx_cmp`, first run `Vecchia_FIC_PIC_compare.Rmd` until the `Plot` Section, then run `gpflow_SVGP.ipynb`, and finally run the `Plot` Section of `Vecchia_FIC_PIC_compare.Rmd` because the FITC method is implemented in the `GPytorch` python package.
