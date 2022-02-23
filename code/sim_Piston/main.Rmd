@@ -55,13 +55,13 @@ sr0 <- 1e-2
 minPosi <- 1e-8
 m <- 100
 k <- 5
-miniCQCD <- 128
+miniQCCD <- 128
 miniGrad <- 128
 lambVecBrdg <- c(2^(rev(-6: 10)), 0)
-convCQCD <- 1e-4
+convQCCD <- 1e-4
 convCCD <- 1e-4
 cAmij <- 1e-4
-maxIterCQCD <- 200
+maxIterQCCD <- 200
 maxIterCCD <- 40
 covFn <- "matern25_scaledim_sqrelevance"
 mini <- T
@@ -115,14 +115,14 @@ VeccObj <-
     OOS_score = OOS_crps,
     stop_con_path = stop_con_OOS1_path,
     stop_con_fb = stop_con_OOS1_fb,
-    miniCQCD = miniCQCD,
+    miniQCCD = miniQCCD,
     miniGrad = miniGrad,
     pIn = pIn,
     spltSeed = 123,
-    convCQCD = convCQCD,
+    convQCCD = convQCCD,
     convCCD = convCCD,
     cAmij = cAmij,
-    maxIterCQCD = maxIterCQCD,
+    maxIterQCCD = maxIterQCCD,
     maxIterCCD = maxIterCCD,
     covFn = covFn,
     minPosi = minPosi,

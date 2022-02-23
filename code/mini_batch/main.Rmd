@@ -37,7 +37,7 @@ y <- MVN_gen(locs, c(sigmasq, rSq, tausq), covFn)
 ```
 
 ```{r batch size, eval = T}
-batchSzCQCD <- 128
+batchSzQCCD <- 128
 batchSzGrad <- 128
 ```
 
@@ -48,13 +48,13 @@ sr0 <- 1e-2
 minPosi <- 1e-8
 m <- 100
 k <- 3
-miniCQCD <- 128
+miniQCCD <- 128
 miniGrad <- 128
 lambVec <- c(2^(rev(-6: 10)), 0)
-convCQCD <- 1e-4
+convQCCD <- 1e-4
 convCCD <- 1e-4
 cAmij <- 1e-4
-maxIterCQCD <- 200
+maxIterQCCD <- 200
 maxIterCCD <- 40
 covFn <- "matern25_scaledim_sqrelevance"
 mini <- T
@@ -99,10 +99,10 @@ for(i in 1 : length(lambVec)){
                     locsOut = locsOut, yIn = yIn, yOut = yOut, m = m, k = k, 
                     lambda = lambda, pen_fun = pen_fun, dpen_fun = dpen_fun, 
                     ddpen_fun = ddpen_fun, OOS_score = OOS_rmse, 
-                    stop_con_fb = stop_con_OOS0_fb, miniCQCD = miniCQCD, 
-                    miniGrad = miniGrad, convCQCD = convCQCD, 
+                    stop_con_fb = stop_con_OOS0_fb, miniQCCD = miniQCCD, 
+                    miniGrad = miniGrad, convQCCD = convQCCD, 
                     convCCD = convCCD, cAmij = cAmij, 
-                    maxIterCQCD = maxIterCQCD, maxIterCCD = maxIterCCD, 
+                    maxIterQCCD = maxIterQCCD, maxIterCCD = maxIterCCD, 
                     covFn = covFn, minPosi = minPosi, mini = mini, 
                     taper = taper, silent = silent)
   endTime <- Sys.time()

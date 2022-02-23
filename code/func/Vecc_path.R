@@ -16,14 +16,14 @@ source("FBselect.R")
 #' @param OOS_score out-of-sample score function
 #' @param stop_con_path path stop cond
 #' @param stop_con_fb forward-backward stop cond
-#' @param miniCQCD mini-batch size for CQCD
+#' @param miniQCCD mini-batch size for QCCD
 #' @param miniGrad mini-batch size for gradient computation
 #' @param pIn in-sample proportion
 #' @param spltSeed locs and y random split seed
-#' @param convCQCD convergence level of CQCD
+#' @param convQCCD convergence level of QCCD
 #' @param convCCD convergence level of CCD
 #' @param cAmij Armijo constant
-#' @param maxIterCQCD max # iterations of CQCD
+#' @param maxIterQCCD max # iterations of QCCD
 #' @param maxIterCCD max # iterations of CCD
 #' @param covFn covariance function name
 #' @param minPosi a small positive number for lower bounds
@@ -32,9 +32,9 @@ source("FBselect.R")
 #' @param silent bool for silent execution?
 Vecc_path <- function(var0, tau0, sr0, locs, y, m, k, lambVec, pen_fun, 
                       dpen_fun, ddpen_fun, OOS_score, stop_con_path,
-                      stop_con_fb, miniCQCD, miniGrad, pIn = 0.25, 
-                      spltSeed = NULL, convCQCD = 1e-4, 
-                      convCCD = 1e-4, cAmij = 1e-4, maxIterCQCD = 500, 
+                      stop_con_fb, miniQCCD, miniGrad, pIn = 0.25, 
+                      spltSeed = NULL, convQCCD = 1e-4, 
+                      convCCD = 1e-4, cAmij = 1e-4, maxIterQCCD = 500, 
                       maxIterCCD = 40, covFn = "matern25_scaledim_sqrelevance", 
                       minPosi = 1e-8, mini = T, taper = F, silent = F, ...)
 {
@@ -71,10 +71,10 @@ Vecc_path <- function(var0, tau0, sr0, locs, y, m, k, lambVec, pen_fun,
                       locsOut = locsOut, yIn = yIn, yOut = yOut, m = m, k = k, 
                       lambda = lambda, pen_fun = pen_fun, dpen_fun = dpen_fun, 
                       ddpen_fun = ddpen_fun, OOS_score = OOS_score, 
-                      stop_con_fb = stop_con_fb, miniCQCD = miniCQCD, 
-                      miniGrad = miniGrad, convCQCD = convCQCD, 
+                      stop_con_fb = stop_con_fb, miniQCCD = miniQCCD, 
+                      miniGrad = miniGrad, convQCCD = convQCCD, 
                       convCCD = convCCD, cAmij = cAmij, 
-                      maxIterCQCD = maxIterCQCD, maxIterCCD = maxIterCCD, 
+                      maxIterQCCD = maxIterQCCD, maxIterCCD = maxIterCCD, 
                       covFn = covFn, minPosi = minPosi, mini = mini, 
                       taper = taper, silent = silent, ...)
     endTime <- Sys.time()

@@ -22,7 +22,7 @@ source("../func/misc.R", chdir = T)
 source("../func/locs_gen.R", chdir = T)
 source("../func/y_gen.R", chdir = T)
 source("../func/penalty.R", chdir = T)
-source("../func/CQCD.R", chdir = T)
+source("../func/QCCD.R", chdir = T)
 source("../func/fisher_scoring.R", chdir = T)
 ```
 
@@ -98,7 +98,7 @@ for(crtIter in c(1 : maxIter))
       likObj$info <- likObj$info + ddpenfun(theta)
     likObj
   }
-  optObj <- CQCD(objfun, objfun_gdfm, theta, maxIterOut = 1, lb = lb,
+  optObj <- QCCD(objfun, objfun_gdfm, theta, maxIterOut = 1, lb = lb,
                  maxIterIn = 40)
   theta <- optObj$covparms
   rsltQCCD[[crtIter]] <- theta
@@ -153,7 +153,7 @@ for(crtIter in c(1 : maxIter))
 ## Save results
 ```{r save the result}
 save(list = c("n", "d", "rsqInit", "rsltQCCD", "rsltFish"), 
-     file = paste0("CQCD_Fisher_cmp_", d, ".RData"))
+     file = paste0("QCCD_Fisher_cmp_", d, ".RData"))
 ```
 
 ## Plot 

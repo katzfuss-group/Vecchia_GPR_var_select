@@ -1,5 +1,5 @@
 library(GpGp)
-source("CQCD.R")
+source("QCCD.R")
 
 #' Forward-backward selection
 #' 
@@ -18,12 +18,12 @@ source("CQCD.R")
 #' @param ddpen_fun ddpenalty func
 #' @param OOS_score out-of-sample score function
 #' @param stop_con_fb forward-backward stop cond
-#' @param miniCQCD mini-batch size for CQCD
+#' @param miniQCCD mini-batch size for QCCD
 #' @param miniGrad mini-batch size for gradient computation
-#' @param convCQCD convergence level of CQCD
+#' @param convQCCD convergence level of QCCD
 #' @param convCCD convergence level of CCD
 #' @param cAmij Armijo constant
-#' @param maxIterCQCD max # iterations of CQCD
+#' @param maxIterQCCD max # iterations of QCCD
 #' @param maxIterCCD max # iterations of CCD
 #' @param covFn covariance function name
 #' @param minPosi a small positive number for lower bounds
@@ -32,9 +32,9 @@ source("CQCD.R")
 #' @param silent bool for silent execution?
 fwd_bwd <- function(idx, theta, sr0, locsIn, locsOut, yIn, yOut, 
                     m, k, lambda, pen_fun, 
-                    dpen_fun, ddpen_fun, OOS_score, stop_con_fb, miniCQCD, 
-                    miniGrad, convCQCD = 1e-4, convCCD = 1e-4, cAmij = 1e-4, 
-                    maxIterCQCD = 500, maxIterCCD = 40, 
+                    dpen_fun, ddpen_fun, OOS_score, stop_con_fb, miniQCCD, 
+                    miniGrad, convQCCD = 1e-4, convCCD = 1e-4, cAmij = 1e-4, 
+                    maxIterQCCD = 500, maxIterCCD = 40, 
                     covFn = "matern25_scaledim_sqrelevance", 
                     minPosi = 1e-8, mini = T, taper = F, silent = F, ...)
 {
@@ -57,16 +57,16 @@ fwd_bwd <- function(idx, theta, sr0, locsIn, locsOut, yIn, yOut,
     timePnt1 <- Sys.time()
     MMNNObj <- MM_NN(theta, idx, locsIn, yIn, lb, m)
     timePnt2 <- Sys.time()
-    # CQCD
-    CQCDObj <- CQCD_wrap(MMNNObj$thetaRel, MMNNObj$yOdr, MMNNObj$locsOdrRel, 
+    # QCCD
+    QCCDObj <- QCCD_wrap(MMNNObj$thetaRel, MMNNObj$yOdr, MMNNObj$locsOdrRel, 
                          MMNNObj$NNarray, MMNNObj$lbRel, lambda, pen_fun, 
-                         dpen_fun, ddpen_fun, convCQCD = convCQCD, 
+                         dpen_fun, ddpen_fun, convQCCD = convQCCD, 
                          convCCD = convCCD, cAmij = cAmij, 
-                         maxIterCQCD = maxIterCQCD, maxIterCCD = maxIterCCD,
-                         covFn = covFn, miniCQCD = miniCQCD, mini = mini, 
+                         maxIterQCCD = maxIterQCCD, maxIterCCD = maxIterCCD,
+                         covFn = covFn, miniQCCD = miniQCCD, mini = mini, 
                          taper = taper, silent = silent, ...)
     timePnt3 <- Sys.time()
-    theta <- get_theta(CQCDObj$covparms, idx, d)
+    theta <- get_theta(QCCDObj$covparms, idx, d)
     idx <- idx[sapply(idx, function(i){theta[i + 1] > 0})]
     idxSet[[iter]] <- idx
     thetaSet[[iter]] <- theta
@@ -80,7 +80,7 @@ fwd_bwd <- function(idx, theta, sr0, locsIn, locsOut, yIn, yOut,
       cat("score:", scrVec[iter], "\n")
       cat("MM_NN used", as.numeric(timePnt2 - timePnt1, units = "secs"),
           "seconds\n")
-      cat("CQCD used", as.numeric(timePnt3 - timePnt2, units = "secs"),
+      cat("QCCD used", as.numeric(timePnt3 - timePnt2, units = "secs"),
           "seconds\n")
     }
     # check stop

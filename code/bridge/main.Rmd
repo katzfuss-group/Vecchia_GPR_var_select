@@ -44,10 +44,10 @@ minPosi <- 1e-8
 m <- 100
 k <- 3
 lambVec <- c(2^(rev(-6: 10)), 0)
-convCQCD <- 1e-4
+convQCCD <- 1e-4
 convCCD <- 1e-4
 cAmij <- 1e-4
-maxIterCQCD <- 100
+maxIterQCCD <- 100
 maxIterCCD <- 40
 covFn <- "matern25_scaledim_sqrelevance"
 mini <- F
@@ -91,10 +91,10 @@ for(i in 1 : length(lambVec)){
                     locsOut = locsOut, yIn = yIn, yOut = yOut, m = m, k = k, 
                     lambda = lambda, pen_fun = pen_fun, dpen_fun = dpen_fun, 
                     ddpen_fun = ddpen_fun, OOS_score = OOS_rmse, 
-                    stop_con_fb = stop_con_OOS0_fb, miniCQCD = NULL, 
-                    miniGrad = NULL, convCQCD = convCQCD, 
+                    stop_con_fb = stop_con_OOS0_fb, miniQCCD = NULL, 
+                    miniGrad = NULL, convQCCD = convQCCD, 
                     convCCD = convCCD, cAmij = cAmij, 
-                    maxIterCQCD = maxIterCQCD, maxIterCCD = maxIterCCD, 
+                    maxIterQCCD = maxIterQCCD, maxIterCCD = maxIterCCD, 
                     covFn = covFn, minPosi = minPosi, mini = mini, 
                     taper = taper, silent = silent)
   endTime <- Sys.time()

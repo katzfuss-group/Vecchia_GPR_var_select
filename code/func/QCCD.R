@@ -11,7 +11,7 @@
 #' @param lb the lower bounds for all parameters
 #' @param arg_check the function for checking parms
 #' @param silent TRUE/FALSE for suppressing output
-CQCD <- function(likfun, likfun_GDFIM, parms0, 
+QCCD <- function(likfun, likfun_GDFIM, parms0, 
                  convtolOut = 1e-4, convtolIn = 1e-4, 
                  cAmij = 1e-4, maxIterOut = 20, maxIterIn = 40, 
                  lb = rep(0, length(parms0)),
@@ -42,7 +42,7 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
     H <- likobj$info
     if(!silent)
     {
-      cat(paste0("CQCD iter ", i - 1, ": \n"))
+      cat(paste0("QCCD iter ", i - 1, ": \n"))
       cat("pars = ",  paste0(round(parms, 4)), "  \n" )
       cat(paste0("obj = ", round(obj, 6), "  \n"))
       cat("\n")
@@ -83,7 +83,7 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
   }
   if(!silent)
   {
-    cat(paste0("CQCD iter ", i, ": \n"))
+    cat(paste0("QCCD iter ", i, ": \n"))
     cat("pars = ",  paste0(round(parms, 4)), "  \n" )
     cat(paste0("obj = ", round(obj, 6), "  \n"))
     cat("\n")
@@ -108,7 +108,7 @@ CQCD <- function(likfun, likfun_GDFIM, parms0,
 #' @param lb the lower bounds for all parameters
 #' @param arg_check the function for checking parms
 #' @param silent TRUE/FALSE for suppressing output
-CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0, 
+QCCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0, 
                  convtolOut = 1e-4, convtolIn = 1e-4, 
                  cAmij = 1e-4, maxIterOut = 20, maxIterIn = 40, 
                  lb = rep(0, length(parms0)),
@@ -137,7 +137,7 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     H <- likobj$info
     if(!silent)
     {
-      cat(paste0("CQCD iter ", i - 1, ": \n"))
+      cat(paste0("QCCD iter ", i - 1, ": \n"))
       cat("pars = ",  paste0(round(parms, 4)), "  \n" )
       cat(paste0("obj = ", round(obj, 6), "  \n"))
       cat("\n")
@@ -184,7 +184,7 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
   }
   if(!silent)
   {
-    cat(paste0("CQCD iter ", i, ": \n"))
+    cat(paste0("QCCD iter ", i, ": \n"))
     cat("pars = ",  paste0(round(parms, 4)), "  \n" )
     cat(paste0("obj = ", round(obj, 6), "  \n"))
     cat("\n")
@@ -211,7 +211,7 @@ CQCD_stochastic <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
 #' @param lb the lower bounds for all parameters
 #' @param arg_check the function for checking parms
 #' @param silent TRUE/FALSE for suppressing output
-CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, nAvg, parms0, 
+QCCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, nAvg, parms0, 
                                   convtolOut = 1e-4, convtolIn = 1e-4, 
                                   cAmij = 1e-4,
                                   maxIterOut = 20, maxIterIn = 40, 
@@ -244,7 +244,7 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, nAvg, parms0
     
     if(!silent)
     {
-      cat(paste0("CQCD iter ", i - 1, ": \n"))
+      cat(paste0("QCCD iter ", i - 1, ": \n"))
       cat("pars = ",  paste0(round(parms, 4)), "  \n" )
       cat(paste0("obj = ", round(obj, 6), "  \n"))
       cat("\n")
@@ -300,7 +300,7 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, nAvg, parms0
   }
   if(!silent)
   {
-    cat(paste0("CQCD iter ", i, ": \n"))
+    cat(paste0("QCCD iter ", i, ": \n"))
     cat("pars = ",  paste0(round(parms, 4)), "  \n" )
     cat(paste0("obj = ", round(obj, 6), "  \n"))
     cat("\n")
@@ -327,7 +327,7 @@ CQCD_stochastic_taper <- function(likfun, likfun_GDFIM, n, batchSz, nAvg, parms0
 #' @param avgNum the average window for grad and info
 #' @param arg_check the function for checking parms
 #' @param silent TRUE/FALSE for suppressing output
-CQCD_stochastic_SAG <- function(likfun, likfun_GDFIM, n, batchSz, parms0, 
+QCCD_stochastic_SAG <- function(likfun, likfun_GDFIM, n, batchSz, parms0, 
                             convtolOut = 1e-4, convtolIn = 1e-4, 
                             cAmij = 1e-4, maxIterOut = 20, maxIterIn = 40, 
                             lb = rep(0, length(parms0)), avgNum = 5,
@@ -370,7 +370,7 @@ CQCD_stochastic_SAG <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
     H <- likobj$info
     if(!silent)
     {
-      cat(paste0("CQCD iter ", i - 1, ": \n"))
+      cat(paste0("QCCD iter ", i - 1, ": \n"))
       cat("pars = ",  paste0(round(parms, 4)), "  \n" )
       cat(paste0("obj = ", round(obj, 6), "  \n"))
       cat("\n")
@@ -421,7 +421,7 @@ CQCD_stochastic_SAG <- function(likfun, likfun_GDFIM, n, batchSz, parms0,
   }
   if(!silent)
   {
-    cat(paste0("CQCD iter ", i, ": \n"))
+    cat(paste0("QCCD iter ", i, ": \n"))
     cat("pars = ",  paste0(round(parms, 4)), "  \n" )
     cat(paste0("obj = ", round(obj, 6), "  \n"))
     cat("\n")
@@ -557,7 +557,7 @@ bktk_Armijo <- function(parms, obj, grad, parmsNew, c, obj_func, lb, arg_check)
   return(parms)
 }
 
-#' Wrapper for different flavors of CQCD
+#' Wrapper for different flavors of QCCD
 #'
 #' @param theta starting values of parameters 
 #' @param y obs vec
@@ -568,23 +568,23 @@ bktk_Armijo <- function(parms, obj, grad, parmsNew, c, obj_func, lb, arg_check)
 #' @param pen_fun penalty func
 #' @param dpen_fun dpenalty func
 #' @param ddpen_fun ddpenalty func
-#' @param convCQCD convergence level of CQCD
+#' @param convQCCD convergence level of QCCD
 #' @param convCCD convergence level of CCD
 #' @param cAmij Armijo constant
-#' @param maxIterCQCD max # iterations of CQCD
+#' @param maxIterQCCD max # iterations of QCCD
 #' @param maxIterCCD max # iterations of CCD
 #' @param covFn covariance function name
-#' @param miniCQCD mini-batch size for CQCD
+#' @param miniQCCD mini-batch size for QCCD
 #' @param mini bool for using mini-batching?
 #' @param taper bool for using penalty tapering?
 #' @param silent bool for silent execution?
 #' @param nAvg number of past parms to average together
-CQCD_wrap <- function(theta, y, locs, NNarray, lb, lambda, 
+QCCD_wrap <- function(theta, y, locs, NNarray, lb, lambda, 
                       pen_fun, dpen_fun, ddpen_fun, 
-                      convCQCD = 1e-4, convCCD = 1e-4, cAmij = 1e-4, 
-                      maxIterCQCD = 500, maxIterCCD = 40,
+                      convQCCD = 1e-4, convCCD = 1e-4, cAmij = 1e-4, 
+                      maxIterQCCD = 500, maxIterCCD = 40,
                       covFn = "matern25_scaledim_sqrelevance",
-                      miniCQCD = 128, mini = T, taper = F, silent = F, ...)
+                      miniQCCD = 128, mini = T, taper = F, silent = F, ...)
 {
   n <- nrow(locs)
   args <- list(...)
@@ -610,9 +610,9 @@ CQCD_wrap <- function(theta, y, locs, NNarray, lb, lambda,
         likObj$info <- likObj$info + ddpen_fun(thetaAvg, lambda, iter)
         likObj
       }
-      CQCD_stochastic_taper(objfun, objfun_gdfm, n, miniCQCD, nAvg, 
-                            theta, lb = lb, convtolOut = convCQCD, 
-                            convtolIn = convCCD, maxIterOut = maxIterCQCD,
+      QCCD_stochastic_taper(objfun, objfun_gdfm, n, miniQCCD, nAvg, 
+                            theta, lb = lb, convtolOut = convQCCD, 
+                            convtolIn = convCCD, maxIterOut = maxIterQCCD,
                             maxIterIn = maxIterCCD, cAmij = cAmij, 
                             silent = silent)
     }else{
@@ -631,9 +631,9 @@ CQCD_wrap <- function(theta, y, locs, NNarray, lb, lambda,
         likObj$info <- likObj$info + ddpen_fun(theta, lambda)
         likObj
       }
-      CQCD_stochastic(objfun, objfun_gdfm, n, miniCQCD, 
-                      theta, lb = lb, convtolOut = convCQCD, 
-                      convtolIn = convCCD, maxIterOut = maxIterCQCD,
+      QCCD_stochastic(objfun, objfun_gdfm, n, miniQCCD, 
+                      theta, lb = lb, convtolOut = convQCCD, 
+                      convtolIn = convCCD, maxIterOut = maxIterQCCD,
                       maxIterIn = maxIterCCD, cAmij = cAmij, 
                       silent = silent)
     }
@@ -651,8 +651,8 @@ CQCD_wrap <- function(theta, y, locs, NNarray, lb, lambda,
       likObj$info <- likObj$info + ddpen_fun(theta, lambda)
       likObj
     }
-    CQCD(objfun, objfun_gdfm, theta, lb = lb, convtolOut = convCQCD, 
-         convtolIn = convCCD, maxIterOut = maxIterCQCD,
+    QCCD(objfun, objfun_gdfm, theta, lb = lb, convtolOut = convQCCD, 
+         convtolIn = convCCD, maxIterOut = maxIterQCCD,
          maxIterIn = maxIterCCD, cAmij = cAmij, 
          silent = silent)
   }

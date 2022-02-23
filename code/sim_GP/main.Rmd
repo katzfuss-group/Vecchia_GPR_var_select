@@ -49,14 +49,14 @@ sr0 <- 1e-2
 minPosi <- 1e-8
 m <- 100
 k <- 3
-miniCQCD <- 128
+miniQCCD <- 128
 miniGrad <- 128
 nAvg <- 2
 lambVecBrdg <- 4^(rev(-6 : 3))
-convCQCD <- 1e-4
+convQCCD <- 1e-4
 convCCD <- 1e-4
 cAmij <- 1e-4
-maxIterCQCD <- 200
+maxIterQCCD <- 200
 maxIterElse <- 100
 maxIterCCD <- 40
 
@@ -138,14 +138,14 @@ for(nTrn in nVec)
           OOS_score = OOS_rmse,
           stop_con_path = stop_con_path,
           stop_con_fb = stop_con_OOS1_fb,
-          miniCQCD = miniCQCD,
+          miniQCCD = miniQCCD,
           miniGrad = miniGrad,
           pIn = pIn,
           spltSeed = 123,
-          convCQCD = convCQCD,
+          convQCCD = convQCCD,
           convCCD = convCCD,
           cAmij = cAmij,
-          maxIterCQCD = maxIterCQCD,
+          maxIterQCCD = maxIterQCCD,
           maxIterCCD = maxIterCCD,
           covFn = covFn,
           minPosi = minPosi,
@@ -176,7 +176,7 @@ for(nTrn in nVec)
                                        y = yTrn,
                                        covFn = covFn,
                                        maxIter = maxIterElse,
-                                       conv = convCQCD,
+                                       conv = convQCCD,
                                        silent = F)
         endTime <- Sys.time()
         timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
@@ -221,7 +221,7 @@ for(nTrn in nVec)
             spltSeed = 123,
             covFn = covFn,
             maxIter = maxIterElse,
-            conv = convCQCD,
+            conv = convQCCD,
             silent = silent,
             cluster = cluster
           )
@@ -262,7 +262,7 @@ for(nTrn in nVec)
             spltSeed = 123,
             covFn = covFn,
             maxIter = maxIterElse,
-            conv = convCQCD,
+            conv = convQCCD,
             silent = silent,
             cluster = cluster
           )
