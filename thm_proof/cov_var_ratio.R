@@ -19,7 +19,8 @@ mydf <- data.frame(rsq = rsqVec, ratio = ratioVec)
 ggplot(data = mydf, aes(x = rsq, y = ratio)) +
   geom_line() +
   geom_hline(yintercept = ratioThres, size = 0.5, 
-             color = "red", lty = "dashed") 
+             color = "red", lty = "dashed") +
+  theme(text = element_text(size = 20))
 ggsave(paste0("normal_locs_ratio.pdf"), width = 7, height = 5)
 
 
@@ -46,7 +47,8 @@ mydf <- data.frame(rsq = rsqVec, ratio = ratioVec)
 ggplot(data = mydf, aes(x = rsq, y = ratio)) +
   geom_line() +
   geom_hline(yintercept = ratioThres, size = 0.5, 
-             color = "red", lty = "dashed") 
+             color = "red", lty = "dashed") +
+  theme(text = element_text(size = 20))
 ggsave(paste0("uniform_locs_ratio.pdf"), width = 7, height = 5)
 
 

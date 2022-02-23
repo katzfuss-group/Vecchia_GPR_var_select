@@ -301,6 +301,7 @@ for(fn in dataFn){
         rsltAll <- rsltAll %>% bind_rows(as_tibble(result))
     }
 }
+rsltAll$time <- rsltAll$time / 60
 rsltAll$mtd[rsltAll$mtd == "VREG"] <- "RESTIVE"
 my_plot <- function(mydf){
     d <- unique(mydf$d)
