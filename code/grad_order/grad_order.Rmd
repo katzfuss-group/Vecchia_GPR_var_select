@@ -14,7 +14,6 @@ rm(list = ls())
 ```
 Need to install a modified version of the GpGp R package.
 ```{r install the moderated GpGp Pkg}
-devtools::install_github("https://github.com/SamCao1991/GpGp.git")
 library(GpGp)
 library(mvtnorm)
 library(lhs)

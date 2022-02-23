@@ -6,7 +6,6 @@
 #     4. Stratified sampling batchsize rows in the NNarray
 ################################################################################
 
-# devtools::install_github("https://github.com/SamCao1991/GpGp.git")
 library(GpGp)
 library(FNN)
 library(lhs)
