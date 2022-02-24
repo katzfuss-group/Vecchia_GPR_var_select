@@ -115,7 +115,7 @@ VeccObj <-
     pen_fun = pen_fun,
     dpen_fun = dpen_fun,
     ddpen_fun = ddpen_fun,
-    OOS_score = OOS_crps,
+    OOS_score = OOS_rmse,
     stop_con_path = stop_con_OOS1_path,
     stop_con_fb = stop_con_OOS1_fb,
     miniQCCD = miniQCCD,
