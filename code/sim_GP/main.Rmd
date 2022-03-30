@@ -302,7 +302,7 @@ for(fn in dataFn){
     }
 }
 rsltAll$time <- rsltAll$time / 60
-rsltAll$mtd[rsltAll$mtd == "VREG"] <- "RESTIVE"
+rsltAll$mtd[rsltAll$mtd == "VREG"] <- "VGPR"
 my_plot <- function(mydf){
     d <- unique(mydf$d)
     rho <- unique(mydf$rho)
