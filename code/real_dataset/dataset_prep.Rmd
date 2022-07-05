@@ -671,12 +671,26 @@ write.table(x = cbind(X, XFkDep, y)[(1 + nTrain) : (nTrain + nTest), ],
 
 ```{r read and rearrange cols, eval = T}
 library(tidyverse)
-trnXFn <- "../../data/temp_train.inputs_processed"
-trnyFn <- "../../data/temp_train.targets_processed"
-tstXFn <- "../../data/temp_valid.inputs_processed"
-tstyFn <- "../../data/temp_valid.targets_processed"
+library(stringr)
+library(readr)
+clean_n_read_temp <- function(fn){
+    str <- read_file(fn)
+    # Shrink down to just one white space
+    str <- stringr::str_replace_all(str,"[ ]+", " ")
+    # Get rid of trailing "" if necessary
+    str <- trimws(str, which = "both", whitespace = "[\\h\\v]")
+    
+    tf <- tempfile()
+    writeLines(str, tf)
+    data <- read.csv(tf, sep = ' ', header = F)
+    data[, colSums(is.na(data)) == 0, drop = F]
+}
+trnXFn <- "../../data/temperature_data/temp_train.inputs"
+trnyFn <- "../../data/temperature_data/temp_train.targets"
+tstXFn <- "../../data/temperature_data/temp_valid.inputs"
+tstyFn <- "../../data/temperature_data/temp_valid.targets"
 dataLst <- map(list(trnXFn, trnyFn, tstXFn, tstyFn), 
-            function(x){read.csv(x, header = F)})
+               function(x){clean_n_read_temp(x)})
 ```
 
 Some EDA on the distribution of `y`.

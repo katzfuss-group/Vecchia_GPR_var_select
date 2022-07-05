@@ -17,6 +17,7 @@ rm(list = ls())
 Need to install a modified version of the GpGp R package.
 ```{r libraries and self-defined funcs}
 library(glmnet)
+library(SAM)
 source("../func/misc.R", chdir = T)
 source("../func/FBselect.R", chdir = T)
 source("../func/stop_cond.R", chdir = T)
@@ -28,7 +29,7 @@ source("../func/penalty.R", chdir = T)
 
 Read args
 ```{r read args, eval = T}
-datasetName <- "temp" # commandArgs(trailingOnly = T)[1]
+datasetName <- "CASP_f991" # commandArgs(trailingOnly = T)[1]
 setLambda <- F
 if(length(commandArgs(trailingOnly = T)) > 1){
   setLambda <- T
@@ -184,7 +185,29 @@ cat("Regression tree FPR:",
     length(setdiff(regTreeObj$idxSel, 1 : dTrue)) / length(regTreeObj$idxSel), "\n")
 ```
 
+## Sparse additive model
 
+```{r Sparse additive model, eval = T}
+bgnTime <- Sys.time()
+samPath <- samQL(X = locsTrn, y = yTrn, nlambda = 15)
+predSam <- predict(object = samPath, newdata = locsTst)$values
+endTime <- Sys.time()
+timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+cat("Sparse additive model solution path used", timeUsed, "seconds\n")
+rmseScrSam <- 
+    apply(predSam, MARGIN = 2, 
+          FUN = function(x){sqrt(mean((x - yTst)^2) / var(yTst))})
+plot(samPath)
+idxLambda <- which(1 - rmseScrSam[2:length(rmseScrSam)] / 
+                       rmseScrSam[1:(length(rmseScrSam) - 1)] < 0.01)[1]
+idxSel <- unique(ceiling(which(samPath$w[, idxLambda] != 0) / samPath$p))
+cat("Sparse additive model solution path RMSE score:", 
+    rmseScrSam[idxLambda], "\n")
+cat("Sparse additive model solution path selected:",
+    length(idxSel), "covariates\n")
+cat("Sparse additive model solution path FPR:", 
+    length(setdiff(idxSel, 1 : dTrue)) / length(idxSel), "\n")
+```
 
 
 

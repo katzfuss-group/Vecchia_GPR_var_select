@@ -12,6 +12,7 @@ For `GP_approx_cmp`, first run `Vecchia_FIC_PIC_compare.Rmd` until the `Plot` Se
 
 For `real_dataset`, the raw data should be first downloaded (e.g., from UCI) to the `data` folder. Then, run the corresponding section of `dataset_prep.Rmd` to pre-process the data. Finally, change the `datasetName` variable in the `main.Rmd` to run the real-data application study.
 
+For the `temperature_data`, leading spaces should first be removed with a text editor.
 
 ## Example
 
