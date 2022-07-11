@@ -16,6 +16,8 @@ rm(list = ls())
 
 ```{r libraries and self-defined funcs}
 library(glmnet)
+library(reticulate)
+library(SAM)
 source("../func/misc.R", chdir = T)
 source("../func/FBselect.R", chdir = T)
 source("../func/stop_cond.R", chdir = T)
@@ -26,12 +28,14 @@ source("../func/penalty.R", chdir = T)
 source("../func/fisher_scoring.R", chdir = T)
 source("../func/PGPR_Yi2011.R", chdir = T)
 source("../func/FWDselect.R", chdir = T)
+source_python("../func/KISS_GP.py")
+source_python("../func/reg_tree.py")
 ```
 
 ```{r sim parms}
-nVec <- c(500, 5000, 25000)
-dVec <- c(100, 1000)
-rhoVec <- c(0, 0.9)
+nVec <- c(500) # c(500, 5000, 25000)
+dVec <- c(10) # c(100, 1000)
+rhoVec <- c(0) # c(0, 0.9)
 # use seed = 1, 2, 3, ...
 seed <- as.numeric(commandArgs(trailingOnly = T)[1])
 sigmaSq <- 1
@@ -117,163 +121,238 @@ for(nTrn in nVec)
       pIn = max(1 - 5e3 / nTrn, 0.75)
       rm(spltObj)
       # VREG
+      # if(!silent){
+      #   cat("======================================================\n")
+      #   cat("VREG\n")
+      # }
+      # bgnTime <- Sys.time()
+      # VeccObj <-
+      #   Vecc_path(
+      #     var0 = var0,
+      #     tau0 = tau0,
+      #     sr0 = sr0,
+      #     locs = locsTrn,
+      #     y = yTrn,
+      #     m = m,
+      #     k = k,
+      #     lambVec = lambVecBrdg,
+      #     pen_fun = pen_fun,
+      #     dpen_fun = dpen_fun,
+      #     ddpen_fun = ddpen_fun,
+      #     OOS_score = OOS_rmse,
+      #     stop_con_path = stop_con_path,
+      #     stop_con_fb = stop_con_OOS1_fb,
+      #     miniQCCD = miniQCCD,
+      #     miniGrad = miniGrad,
+      #     pIn = pIn,
+      #     spltSeed = 123,
+      #     convQCCD = convQCCD,
+      #     convCCD = convCCD,
+      #     cAmij = cAmij,
+      #     maxIterQCCD = maxIterQCCD,
+      #     maxIterCCD = maxIterCCD,
+      #     covFn = covFn,
+      #     minPosi = minPosi,
+      #     mini = mini,
+      #     taper = taper,
+      #     silent = silent,
+      #     nAvg = nAvg
+      #   )
+      # endTime <- Sys.time()
+      # timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+      # scr <- OOS_rmse(VeccObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
+      # fpos <- length(setdiff(VeccObj$idx, 1 : d0)) / length(VeccObj$idx)
+      # result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "VREG", scr = scr,
+      #                       time = timeUsed, fpos = fpos)
+      # idx <- idx + 1
+      # Fisher
+      # if(!silent){
+      #   cat("======================================================\n")
+      #   cat("Fisher\n")
+      # }
+      # if((d < 1e3) | (nTrn < 1e4)){
+      #   bgnTime <- Sys.time()
+      #   FishObj <-
+      #     fisher_scoring_meanzero_wrap(locsIdx = 1 : d,
+      #                                  m = m,
+      #                                  theta = c(var0, rep(sr0, d), tau0),
+      #                                  locs = locsTrn,
+      #                                  y = yTrn,
+      #                                  covFn = covFn,
+      #                                  maxIter = maxIterElse,
+      #                                  conv = convQCCD,
+      #                                  silent = F)
+      #   endTime <- Sys.time()
+      #   timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+      #   scr <- OOS_rmse(FishObj, locsTrn, locsTst, yTrn, yTst, m, covFn)
+      #   idxFish <- which(FishObj[2 : (d + 1)] > 1e-7)
+      #   fpos <- length(setdiff(idxFish, 1 : d0)) / length(idxFish)
+      #   result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "Fisher",
+      #                         scr = scr, time = timeUsed, fpos = fpos)
+      #   if(!silent){
+      #       cat("======================================================\n")
+      #       cat("Results of Fisher scoring:\n")
+      #       cat("idx:", idxFish, "\n")
+      #       cat("theta:", FishObj[c(1, idxFish + 1, d + 2)], "\n")
+      #       cat("score:", scr, "\n")
+      #   }
+      # }else{
+      #   result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "Fisher",
+      #                         scr = NA, time = NA, fpos = NA)
+      # }
+      # idx <- idx + 1
+      # PGPR
+      # if(!silent){
+      #   cat("======================================================\n")
+      #   cat("PGPR\n")
+      # }
+      # if(nTrn < 1e3){
+      #   bgnTime <- Sys.time()
+      #   PGPRObj <-
+      #     PGPR_Yi11(
+      #       theta_gen = theta_gen,
+      #       ngen = ngenPGPR,
+      #       locs = locsTrn,
+      #       y = yTrn,
+      #       m = m,
+      #       lambVec = lambVecBrdg,
+      #       pen_fun = pen_brdg,
+      #       dpen_fun = dpen_brdg,
+      #       ddpen_fun = ddpen_brdg,
+      #       OOS_score = OOS_rmse,
+      #       stop_con_path = stop_con_path,
+      #       pIn = pIn,
+      #       spltSeed = 123,
+      #       covFn = covFn,
+      #       maxIter = maxIterElse,
+      #       conv = convQCCD,
+      #       silent = silent,
+      #       cluster = cluster
+      #     )
+      #   endTime <- Sys.time()
+      #   timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+      #   if(anyNA(PGPRObj$theta)){
+      #     result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR",
+      #                           scr = NA, time = NA, fpos = NA)
+      #   }else{
+      #     scr <- OOS_rmse(PGPRObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
+      #     fpos <- length(setdiff(PGPRObj$idx, 1 : d0)) / length(PGPRObj$idx)
+      #     result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR",
+      #                           scr = scr, time = timeUsed, fpos = fpos)
+      #   }
+      # }else{
+      #   result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR", scr = NA,
+      #                         time = NA, fpos = NA)
+      # }
+      # idx <- idx + 1
+      # FWD
+      # if(!silent){
+      #   cat("======================================================\n")
+      #   cat("FWD\n")
+      # }
+      # if((nTrn < 1e4 & d < 1e3) | (nTrn < 1e3)){
+      #   bgnTime <- Sys.time()
+      #   FWDObj <-
+      #     forward_selection_fisher(
+      #       var0 = var0,
+      #       tau0 = tau0,
+      #       sr0 = sr0,
+      #       locs = locsTrn,
+      #       y = yTrn,
+      #       m = m,
+      #       OOS_score = OOS_rmse,
+      #       stop_con_path = stop_con_path,
+      #       pIn = pIn,
+      #       spltSeed = 123,
+      #       covFn = covFn,
+      #       maxIter = maxIterElse,
+      #       conv = convQCCD,
+      #       silent = silent,
+      #       cluster = cluster
+      #     )
+      #   endTime <- Sys.time()
+      #   timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+      #   scr <- OOS_rmse(FWDObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
+      #   fpos <- length(setdiff(FWDObj$idx, 1 : d0)) / length(FWDObj$idx)
+      #   result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "FWD", scr = scr,
+      #                         time = timeUsed, fpos = fpos)
+      # }else{
+      #   result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "FWD", scr = NA,
+      #                         time = NA, fpos = NA)
+      # }
+      # idx <- idx + 1
+      # Lasso
       if(!silent){
         cat("======================================================\n")
-        cat("VREG\n")
+        cat("Lasso\n")
       }
       bgnTime <- Sys.time()
-      VeccObj <-
-        Vecc_path(
-          var0 = var0,
-          tau0 = tau0,
-          sr0 = sr0,
-          locs = locsTrn,
-          y = yTrn,
-          m = m,
-          k = k,
-          lambVec = lambVecBrdg,
-          pen_fun = pen_fun,
-          dpen_fun = dpen_fun,
-          ddpen_fun = ddpen_fun,
-          OOS_score = OOS_rmse,
-          stop_con_path = stop_con_path,
-          stop_con_fb = stop_con_OOS1_fb,
-          miniQCCD = miniQCCD,
-          miniGrad = miniGrad,
-          pIn = pIn,
-          spltSeed = 123,
-          convQCCD = convQCCD,
-          convCCD = convCCD,
-          cAmij = cAmij,
-          maxIterQCCD = maxIterQCCD,
-          maxIterCCD = maxIterCCD,
-          covFn = covFn,
-          minPosi = minPosi,
-          mini = mini,
-          taper = taper,
-          silent = silent,
-          nAvg = nAvg
-        )
+      cvLassoObj <- cv.glmnet(x = locsTrn, y = yTrn, alpha = 1, intercept = T)
       endTime <- Sys.time()
       timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
-      scr <- OOS_rmse(VeccObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
-      fpos <- length(setdiff(VeccObj$idx, 1 : d0)) / length(VeccObj$idx)
-      result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "VREG", scr = scr,
-                            time = timeUsed, fpos = fpos)
+      predLasso <- predict(object = cvLassoObj, s = cvLassoObj$lambda.min, 
+                   newx = locsTst)
+      scr <- sqrt(mean((predLasso - yTst)^2) / var(yTst))
+      idxSel <- which(
+        cvLassoObj$glmnet.fit$beta[, cvLassoObj$index["min", "Lambda"]] != 0)
+      fpos <- length(setdiff(idxSel, 1 : d0)) / length(idxSel)
+      result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "Lasso", 
+                            scr = scr, time = timeUsed, fpos = fpos)
       idx <- idx + 1
-      # Fisher
+      # Sparse additive model
       if(!silent){
         cat("======================================================\n")
-        cat("Fisher\n")
+        cat("Sparse additive model\n")
       }
-      if((d < 1e3) | (nTrn < 1e4)){
-        bgnTime <- Sys.time()
-        FishObj <-
-          fisher_scoring_meanzero_wrap(locsIdx = 1 : d,
-                                       m = m,
-                                       theta = c(var0, rep(sr0, d), tau0),
-                                       locs = locsTrn,
-                                       y = yTrn,
-                                       covFn = covFn,
-                                       maxIter = maxIterElse,
-                                       conv = convQCCD,
-                                       silent = F)
-        endTime <- Sys.time()
-        timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
-        scr <- OOS_rmse(FishObj, locsTrn, locsTst, yTrn, yTst, m, covFn)
-        idxFish <- which(FishObj[2 : (d + 1)] > 1e-7)
-        fpos <- length(setdiff(idxFish, 1 : d0)) / length(idxFish)
-        result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "Fisher",
-                              scr = scr, time = timeUsed, fpos = fpos)
-        if(!silent){
-            cat("======================================================\n")
-            cat("Results of Fisher scoring:\n")
-            cat("idx:", idxFish, "\n")
-            cat("theta:", FishObj[c(1, idxFish + 1, d + 2)], "\n")
-            cat("score:", scr, "\n")
-        }
-      }else{
-        result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "Fisher",
-                              scr = NA, time = NA, fpos = NA)
-      }
+      bgnTime <- Sys.time()
+      samPath <- samQL(X = locsTrn, y = yTrn, nlambda = 15)
+      endTime <- Sys.time()
+      timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+      predSam <- predict(object = samPath, newdata = locsTst)$values
+      rmseSam <- 
+        apply(predSam, MARGIN = 2, 
+              FUN = function(x){sqrt(mean((x - yTst)^2) / var(yTst))})
+      idxLambda <- which(1 - rmseSam[2:length(rmseSam)] / 
+                         rmseSam[1:(length(rmseSam) - 1)] < 0.01)[1]
+      if(length(idxLambda) == 0)
+        idxLambda <- dim(predSam)[2]
+      idxSel <- unique(ceiling(which(samPath$w[, idxLambda] != 0) / samPath$p))
+      scr <- rmseSam[idxLambda]
+      fpos <- length(setdiff(idxSel, 1 : d0)) / length(idxSel)
+      result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "SAM", 
+                            scr = scr, time = timeUsed, fpos = fpos)
       idx <- idx + 1
-      # PGPR
+      # Regression tree
       if(!silent){
         cat("======================================================\n")
-        cat("PGPR\n")
+        cat("Regression tree\n")
       }
-      if(nTrn < 1e3){
-        bgnTime <- Sys.time()
-        PGPRObj <-
-          PGPR_Yi11(
-            theta_gen = theta_gen,
-            ngen = ngenPGPR,
-            locs = locsTrn,
-            y = yTrn,
-            m = m,
-            lambVec = lambVecBrdg,
-            pen_fun = pen_brdg,
-            dpen_fun = dpen_brdg,
-            ddpen_fun = ddpen_brdg,
-            OOS_score = OOS_rmse,
-            stop_con_path = stop_con_path,
-            pIn = pIn,
-            spltSeed = 123,
-            covFn = covFn,
-            maxIter = maxIterElse,
-            conv = convQCCD,
-            silent = silent,
-            cluster = cluster
-          )
-        endTime <- Sys.time()
-        timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
-        if(anyNA(PGPRObj$theta)){
-          result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR",
-                                scr = NA, time = NA, fpos = NA)
-        }else{
-          scr <- OOS_rmse(PGPRObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
-          fpos <- length(setdiff(PGPRObj$idx, 1 : d0)) / length(PGPRObj$idx)
-          result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR",
-                                scr = scr, time = timeUsed, fpos = fpos)
-        }
-      }else{
-        result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "PGPR", scr = NA,
-                              time = NA, fpos = NA)
-      }
+      bgnTime <- Sys.time()
+      regTreeObj <- reg_tree_wrap(locsTrn, yTrn, locsTst, yTst, pIn)
+      endTime <- Sys.time()
+      timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+      scr <- regTreeObj$rmseScr
+      fpos <- length(setdiff(regTreeObj$idxSel, 1 : d0)) / 
+        length(regTreeObj$idxSel)
+      result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "Tree", 
+                            scr = scr, time = timeUsed, fpos = fpos)
       idx <- idx + 1
-      # FWD
+      # KISS-GP
       if(!silent){
         cat("======================================================\n")
-        cat("FWD\n")
+        cat("KISS-GP\n")
       }
-      if((nTrn < 1e4 & d < 1e3) | (nTrn < 1e3)){
+      if(d < 1e3){
         bgnTime <- Sys.time()
-        FWDObj <-
-          forward_selection_fisher(
-            var0 = var0,
-            tau0 = tau0,
-            sr0 = sr0,
-            locs = locsTrn,
-            y = yTrn,
-            m = m,
-            OOS_score = OOS_rmse,
-            stop_con_path = stop_con_path,
-            pIn = pIn,
-            spltSeed = 123,
-            covFn = covFn,
-            maxIter = maxIterElse,
-            conv = convQCCD,
-            silent = silent,
-            cluster = cluster
-          )
+        kissGPObj <- KISS_GP_wrap(locsTrn, yTrn, locsTst, yTst)
         endTime <- Sys.time()
         timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
-        scr <- OOS_rmse(FWDObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
-        fpos <- length(setdiff(FWDObj$idx, 1 : d0)) / length(FWDObj$idx)
-        result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "FWD", scr = scr,
+        scr <- kissGPObj$rmseScr
+        fpos <- NA
+        result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "KISS", scr = scr,
                               time = timeUsed, fpos = fpos)
       }else{
-        result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "FWD", scr = NA,
+        result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "KISS", scr = NA,
                               time = NA, fpos = NA)
       }
       idx <- idx + 1
