@@ -17,6 +17,7 @@ rm(list = ls())
 Need to install a modified version of the GpGp R package.
 ```{r libraries and self-defined funcs}
 library(glmnet)
+library(reticulate)
 library(SAM)
 source("../func/misc.R", chdir = T)
 source("../func/FBselect.R", chdir = T)
@@ -25,11 +26,14 @@ source("../func/locs_gen.R", chdir = T)
 source("../func/y_gen.R", chdir = T)
 source("../func/Vecc_path.R", chdir = T)
 source("../func/penalty.R", chdir = T)
+source("../func/fisher_scoring.R", chdir = T)
+source_python("../func/reg_tree.py")
+source_python("../func/KISS_GP.py")
 ```
 
 Read args
 ```{r read args, eval = T}
-datasetName <- "CASP_f991" # commandArgs(trailingOnly = T)[1]
+datasetName <- commandArgs(trailingOnly = T)[1]
 setLambda <- F
 if(length(commandArgs(trailingOnly = T)) > 1){
   setLambda <- T
@@ -71,7 +75,6 @@ pIn = max(1 - 5e3 / nTrn, 0.75)
 rm(datasetTst, datasetTrn)
 ```
 
-## VREG
 
 ```{r some opt parms, eval = T}
 var0 <- 1
@@ -91,6 +94,7 @@ convQCCD <- 1e-4
 convCCD <- 1e-4
 cAmij <- 1e-4
 maxIterQCCD <- 200
+maxIterElse <- 100
 maxIterCCD <- 40
 covFn <- "matern25_scaledim_sqrelevance"
 mini <- T
@@ -101,7 +105,9 @@ dpen_fun <- dpen_avg_brdg
 ddpen_fun <- ddpen_avg_brdg
 ```
 
-```{r Vecc_path parms est and var select, eval = T, echo = F, results = F}
+## VREG
+
+```{r Vecc_path parms est and var select, eval = F, echo = F, results = F}
 bgnTime <- Sys.time()
 VeccObj <-
   Vecc_path(
@@ -138,9 +144,6 @@ VeccObj <-
 endTime <- Sys.time()
 timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
 cat("Vecchia solution path used", timeUsed, "seconds\n")
-```
-
-```{r Vecc_path performance, eval = T}
 VeccScr <- OOS_rmse(VeccObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
 cat("Vecchia solution path RMSE score:", VeccScr, "\n")
 cat("Vecchia solution path selected:", length(VeccObj$idx), "covariates\n")
@@ -148,9 +151,45 @@ cat("Vecchia solution path FPR:",
     length(setdiff(VeccObj$idx, 1 : dTrue)) / length(VeccObj$idx), "\n")
 ```
 
+## Fisher scoring
+
+```{r Fisher scoring, eval = F, echo = F, results = F}
+bgnTime <- Sys.time()
+if(prod(dim(locsTrn)) < 5e5){
+  bgnTime <- Sys.time()
+  FishObj <-
+    fisher_scoring_meanzero_wrap(locsIdx = 1 : d,
+                                 m = m,
+                                 theta = c(var0, rep(sr0, d), tau0),
+                                 locs = locsTrn,
+                                 y = yTrn,
+                                 covFn = covFn,
+                                 maxIter = maxIterElse,
+                                 conv = convQCCD,
+                                 silent = F)
+  endTime <- Sys.time()
+  timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+  scr <- OOS_rmse(FishObj, locsTrn, locsTst, yTrn, yTst, m, covFn)
+  idxFish <- which(FishObj[2 : (d + 1)] > 1e-7)
+  fpos <- length(setdiff(idxFish, 1 : dTrue)) / length(idxFish)
+  if(!silent){
+    cat("Fisher scoring RMSE score:", scr, "\n")
+    cat("Fisher scoring selected:", length(idxFish), "covariates\n")
+    cat("Fisher scoring FPR:", fpos, "\n")
+  }
+}else{
+  if(!silent){
+      cat("Fisher scoring not executed due to computational limits\n")
+  }
+}
+endTime <- Sys.time()
+timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+cat("Fisher scoring used", timeUsed, "seconds\n")
+```
+
 ## Lasso regression.
 
-```{r Lasso regression, eval = T}
+```{r Lasso regression, eval = F}
 lassoPath <- glmnet(x = locsTrn, y = yTrn, alpha = 1, intercept = T)
 plot(lassoPath)
 bgnTime <- Sys.time()
@@ -172,8 +211,7 @@ cat("Lasso solution path FPR:",
 
 ## Regression tree
 
-```{r regression tree parms est and var select, eval = T}
-source_python("../func/reg_tree.py")
+```{r regression tree parms est and var select, eval = F}
 bgnTime <- Sys.time()
 regTreeObj <- reg_tree_wrap(locsTrn, yTrn, locsTst, yTst, pIn)
 endTime <- Sys.time()
