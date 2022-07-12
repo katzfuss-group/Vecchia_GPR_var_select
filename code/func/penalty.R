@@ -4,16 +4,16 @@
 #' 
 #' @param theta covariance parms (var, R/SR/range(s), tau)
 #' @lambda penalty scalar
-pen_brdg <- function(theta, lambda){
-  lambda * sum(theta[-c(1, length(theta))]^(0.25))
+pen_brdg <- function(theta, lambda, gamma = 0.25){
+  lambda * sum(theta[-c(1, length(theta))]^(gamma))
 }
-dpen_brdg <- function(theta, lambda){
+dpen_brdg <- function(theta, lambda, gamma = 0.25){
   r <- theta[-c(1, length(theta))]
-  rpen <- lambda * r^(0.25 - 1) * 0.25
-  rpen[r < 1e-20] <- lambda * (1e-20)^(0.25 - 1) * 0.25
+  rpen <- lambda * r^(gamma - 1) * gamma
+  rpen[r < 1e-20] <- lambda * (1e-20)^(gamma - 1) * gamma
   c(0, rpen, 0)
 }
-ddpen_brdg <- function(theta, lambda){
+ddpen_brdg <- function(theta, lambda, gamma = 0.25){
   diag(rep(0, length(theta)))
 }
 
@@ -21,17 +21,17 @@ ddpen_brdg <- function(theta, lambda){
 #' 
 #' @param thetaAvg averaged covariance parms (var, R/SR/range(s), tau)
 #' @lambda penalty scalar
-#' @iter `#iter to average over
-pen_avg_brdg <- function(thetaAvg, lambda, iter){
-  lambda * sum(thetaAvg[-c(1, length(thetaAvg))]^(0.25))
+#' @iter #iter to average over
+pen_avg_brdg <- function(thetaAvg, lambda, iter, gamma = 0.25){
+  lambda * sum(thetaAvg[-c(1, length(thetaAvg))]^(gamma))
 }
-dpen_avg_brdg <- function(thetaAvg, lambda, iter){
+dpen_avg_brdg <- function(thetaAvg, lambda, iter, gamma = 0.25){
   rAvg <- thetaAvg[-c(1, length(thetaAvg))]
-  rpen <- lambda * rAvg^(0.25 - 1) * 0.25 / iter
-  rpen[rAvg < 1e-20] <- lambda * (1e-20)^(0.25 - 1) * 0.25 / iter
+  rpen <- lambda * rAvg^(gamma - 1) * gamma / iter
+  rpen[rAvg < 1e-20] <- lambda * (1e-20)^(gamma - 1) * gamma / iter
   c(0, rpen, 0)
 }
-ddpen_avg_brdg <- function(thetaAvg, lambda, iter){
+ddpen_avg_brdg <- function(thetaAvg, lambda, iter, gamma = 0.25){
   diag(rep(0, length(thetaAvg)))
 }
 

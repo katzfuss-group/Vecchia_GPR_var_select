@@ -1,0 +1,211 @@
+---
+title: "Application Study"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preparation
+
+Clean the environment
+```{r clean environment}
+rm(list = ls())
+```
+
+```{r libraries and self-defined funcs}
+source("../func/misc.R", chdir = T)
+source("../func/FBselect.R", chdir = T)
+source("../func/stop_cond.R", chdir = T)
+source("../func/locs_gen.R", chdir = T)
+source("../func/y_gen.R", chdir = T)
+source("../func/Vecc_path.R", chdir = T)
+source("../func/penalty.R", chdir = T)
+```
+
+```{r sim parms}
+nTrn <- 500#0
+d <- 100#0
+rho <- 0
+sigmaSq <- 1
+tauSq <- 0.05^2
+rSq0 <- c(10, 5, 2, 1, 0.5)^2
+d0 <- 5
+covFn <- "matern25_scaledim_sqrelevance"
+nTst <- 500#0
+nrep <- 5
+```
+
+```{r some opt parms, eval = T}
+var0 <- 0.25
+tau0 <- 1e-4
+sr0 <- 1e-2
+minPosi <- 1e-8
+m <- 100
+k <- 3
+miniQCCD <- 128
+miniGrad <- 128
+nAvgVec <- seq(from = 0, to = 30, by = 3)
+gammaVec <- c(0.01, 0.05, 0.1, 0.25, 0.5, 0.99)
+lambVecBrdg <- 4^(rev(-6 : 3))
+convQCCD <- 1e-4
+convCCD <- 1e-4
+cAmij <- 1e-4
+maxIterQCCD <- 200
+maxIterCCD <- 40
+covFn <- "matern25_scaledim_sqrelevance"
+mini <- T
+silent <- F
+stop_con_path <- function(scrVec, idxSet, thetaSet){
+  min(stop_con_NEW_path(scrVec, idxSet, thetaSet), 
+      stop_con_OOS1_path(scrVec, idxSet, thetaSet))
+}
+```
+
+```{r storage vars, eval = T}
+result <- data.frame(matrix(NA, 0, 7))
+colnames(result) <- c("n", "d", "rho", "mtd", "scr", "time", "fpos")
+idx <- 1
+```
+
+```{r main loop}
+for(i in 1 : nrep){
+  set.seed(i)
+  if(rho != 0){
+    locs <- locs_gen_dp(n = nTrn + nTst, d = d, rho = rho)
+  }else{
+    locs <- locs_gen_idp(n = nTrn + nTst, d = d)
+  }
+  theta <- c(sigmaSq, rSq0, rep(0, d - d0), tauSq) 
+  y <- MVN_gen(locs = locs, parms = theta, covFn = covFn)
+  pIn <- nTrn / (nTrn + nTst)
+  spltObj <- splt_locs_y(locs, y, pIn)
+  locsTrn <- spltObj$locs1
+  locsTst <- spltObj$locs2
+  yTrn <- spltObj$y1
+  yTst <- spltObj$y2
+  # standardize y
+  meanYTrn <- mean(yTrn)
+  sdYTrn <- sd(yTrn)
+  yTrn <- (yTrn - meanYTrn) / sdYTrn
+  yTst <- (yTst - meanYTrn) / sdYTrn
+  pIn = max(1 - 5e3 / nTrn, 0.75)
+  rm(spltObj)
+  for(nAvg in nAvgVec)
+    for(gamma in gammaVec){
+      if(!silent){
+        cat("======================================================\n")
+        cat("rep =", i, "nAvg =", nAvg, "gamma =", gamma, "\n")
+      }
+      if(nAvg > 0){
+        taper <- T
+        pen_fun <- function(thetaAvg, lambda, iter){
+          pen_avg_brdg(thetaAvg, lambda, iter, gamma = gamma)
+        }
+        dpen_fun <- function(thetaAvg, lambda, iter){
+          dpen_avg_brdg(thetaAvg, lambda, iter, gamma = gamma)
+        }
+        ddpen_fun <- function(thetaAvg, lambda, iter){
+          ddpen_avg_brdg(thetaAvg, lambda, iter, gamma = gamma)
+        }
+      }else{
+        taper <- F
+        pen_fun <- function(theta, lambda){
+          pen_brdg(theta, lambda, gamma = gamma)
+        }
+        dpen_fun <- function(theta, lambda){
+          dpen_brdg(theta, lambda, gamma = gamma)
+        }
+        ddpen_fun <- function(theta, lambda){
+          ddpen_brdg(theta, lambda, gamma = gamma)
+        }
+      }
+      # VREG
+      bgnTime <- Sys.time()
+      VeccObj <-
+        Vecc_path(
+          var0 = var0,
+          tau0 = tau0,
+          sr0 = sr0,
+          locs = locsTrn,
+          y = yTrn,
+          m = m,
+          k = k,
+          lambVec = lambVecBrdg,
+          pen_fun = pen_fun,
+          dpen_fun = dpen_fun,
+          ddpen_fun = ddpen_fun,
+          OOS_score = OOS_rmse,
+          stop_con_path = stop_con_path,
+          stop_con_fb = stop_con_OOS1_fb,
+          miniQCCD = miniQCCD,
+          miniGrad = miniGrad,
+          pIn = pIn,
+          spltSeed = 123,
+          convQCCD = convQCCD,
+          convCCD = convCCD,
+          cAmij = cAmij,
+          maxIterQCCD = maxIterQCCD,
+          maxIterCCD = maxIterCCD,
+          covFn = covFn,
+          minPosi = minPosi,
+          mini = mini,
+          taper = taper,
+          silent = silent,
+          nAvg = nAvg
+        )
+      endTime <- Sys.time()
+      timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
+      scr <- OOS_rmse(VeccObj$theta, locsTrn, locsTst, yTrn, yTst, m, covFn)
+      fpos <- length(setdiff(VeccObj$idx, 1 : d0)) / length(VeccObj$idx)
+      nsel <- length(VeccObj$idx)
+      result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "VREG", scr = scr,
+                            time = timeUsed, fpos = fpos, nsel = nsel)
+      idx <- idx + 1
+    }
+}
+```
+
+```{r save results, eval = T}
+save(result, file = paste0("sensitivity.RData"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
