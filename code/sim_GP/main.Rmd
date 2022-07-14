@@ -305,18 +305,28 @@ for(nTrn in nVec)
         cat("Sparse additive model\n")
       }
       bgnTime <- Sys.time()
-      samPath <- samQL(X = locsTrn, y = yTrn, nlambda = 15)
+      idxInsamp <- round(nTrn * pIn)
+      samPath <- samQL(X = apply(locsTrn[1 : idxInsamp, ], MARGIN = 2, 
+                           FUN = function(x){
+                             x + sd(x) / 1e4 * runif(length(x), -1, 1)}), 
+                 y = yTrn, nlambda = 15)
       endTime <- Sys.time()
       timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
-      predSam <- predict(object = samPath, newdata = locsTst)$values
+      predSam <- predict(object = samPath,
+                   newdata = locsTrn[(1 + idxInsamp) : nTrn, ])$values
       rmseSam <- 
         apply(predSam, MARGIN = 2, 
-              FUN = function(x){sqrt(mean((x - yTst)^2) / var(yTst))})
+              FUN = function(x){
+                sqrt(mean((x - yTrn[(1 + idxInsamp) : nTrn])^2) / var(yTst))})
       idxLambda <- which(1 - rmseSam[2:length(rmseSam)] / 
                          rmseSam[1:(length(rmseSam) - 1)] < 0.01)[1]
       if(length(idxLambda) == 0)
         idxLambda <- dim(predSam)[2]
       idxSel <- unique(ceiling(which(samPath$w[, idxLambda] != 0) / samPath$p))
+      predSam <- predict(object = samPath, newdata = locsTst)$values
+      rmseSam <- 
+          apply(predSam, MARGIN = 2, 
+                FUN = function(x){sqrt(mean((x - yTst)^2) /var(yTst))})
       scr <- rmseSam[idxLambda]
       fpos <- length(setdiff(idxSel, 1 : d0)) / length(idxSel)
       result[idx, ] <- list(n = nTrn, d = d, rho = rho, mtd = "SAM", 
@@ -391,9 +401,11 @@ my_plot <- function(mydf){
                   aes(x = n, y = value, col = mtd, shape = mtd, group = mtd)) +
         geom_point(size = 5) + 
         scale_shape(solid = FALSE) +
+        scale_shape_manual(values=seq(0, length(unique(mydf$mtd)) - 1)) +
         geom_line() +
         theme(text = element_text(size = 20), legend.title = element_blank(),
-              legend.key.height = unit(3, 'cm'))
+              legend.key.height = unit(3, 'cm'), 
+              plot.title = element_text(hjust = 0.5))
     if(measure == "scr")
         plt <- plt + ggtitle(paste0(d,  " ",
                                     switch((rho > 0) + 1, "ind", "dep"), 
@@ -413,7 +425,8 @@ my_plot <- function(mydf){
 }
 plt <- rsltAll %>% mutate(n = factor(n)) %>% 
   group_by(n, d, rho, mtd) %>% 
-  summarise(scr = mean(scr), fpos = mean(fpos), time = mean(time)) %>% 
+  summarise(scr = mean(scr), fpos = mean(fpos, na.rm = T), 
+            time = mean(time)) %>% 
   pivot_longer(cols = c("scr", "time", "fpos"), names_to = "measure") %>% 
   mutate(measure = factor(measure, levels = c("scr", "fpos", "time"))) %>%
   group_by(measure, d, rho) %>% group_split() %>% map(my_plot) %>% 

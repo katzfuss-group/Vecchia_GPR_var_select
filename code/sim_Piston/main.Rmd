@@ -234,18 +234,28 @@ cat("KISS-GP FPR:", NA, "\n")
 
 ```{r Sparse additive model, eval = T}
 bgnTime <- Sys.time()
-samPath <- samQL(X = locsTrn, y = yTrn, nlambda = 15)
-predSam <- predict(object = samPath, newdata = locsTst)$values
+idxInsamp <- round(nTrn * pIn)
+samPath <- samQL(X = apply(locsTrn[1 : idxInsamp, ], MARGIN = 2, 
+                           FUN = function(x){
+                             x + sd(x) / 1e4 * runif(length(x), -1, 1)}), 
+                 y = yTrn, nlambda = 15)
 endTime <- Sys.time()
 timeUsed <- as.numeric(endTime - bgnTime, units = "secs")
 cat("Sparse additive model solution path used", timeUsed, "seconds\n")
+predSam <- predict(object = samPath,
+                   newdata = locsTrn[(1 + idxInsamp) : nTrn, ])$values
 rmseScrSam <- 
     apply(predSam, MARGIN = 2, 
-          FUN = function(x){sqrt(mean((x - yTst)^2) / var(yTst))})
+          FUN = function(x){sqrt(mean((x - yTrn[(1 + idxInsamp) : nTrn])^2) /
+                                   var(yTst))})
 plot(samPath)
 idxLambda <- which(1 - rmseScrSam[2:length(rmseScrSam)] / 
                        rmseScrSam[1:(length(rmseScrSam) - 1)] < 0.01)[1]
 idxSel <- unique(ceiling(which(samPath$w[, idxLambda] != 0) / samPath$p))
+predSam <- predict(object = samPath, newdata = locsTst)$values
+rmseScrSam <- 
+    apply(predSam, MARGIN = 2, 
+          FUN = function(x){sqrt(mean((x - yTst)^2) /var(yTst))})
 cat("Sparse additive model solution path RMSE score:", 
     rmseScrSam[idxLambda], "\n")
 cat("Sparse additive model solution path selected:",

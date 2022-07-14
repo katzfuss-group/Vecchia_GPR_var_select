@@ -14,6 +14,8 @@ For `real_dataset`, the raw data should be first downloaded (e.g., from UCI) to 
 
 For the `temperature_data`, leading spaces should first be removed with a text editor.
 
+For the sparse additive model implemented in `SAM` R package, the input is jittered slightly. Otherwise, some datasets, e.g., the slicing dataset, reported error.
+
 ## Example
 
 ### Preparation
