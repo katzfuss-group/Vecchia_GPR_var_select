@@ -26,8 +26,8 @@ source("../func/penalty.R", chdir = T)
 
 ```{r sim parms}
 nTrn <- 5000
-d <- 1000
-rho <- 0
+d <- 100
+rho <- 0.9
 sigmaSq <- 1
 tauSq <- 0.05^2
 rSq0 <- c(10, 5, 2, 1, 0.5)^2
@@ -178,17 +178,22 @@ library(RColorBrewer)
 library(scales)
 library(reshape)
 rm(rsltAll)
-for(seed in c(1, 3, 4, 5)){
-    fn <- paste0("sensitivity_seed", seed, ".RData")
-    load(fn)
-    if(!exists("rsltAll")){
-        rsltAll <- as_tibble(result)
-    }else{
-        rsltAll <- rsltAll %>% bind_rows(as_tibble(result))
-    }
+for(k in c(3, 4, 5)){
+  for(seed in c(1, 2, 3, 4, 5)){
+      fn <- paste0("sensitivity_k", k, "_seed", seed, ".RData")
+      load(fn)
+      if(!exists("rsltAll")){
+          rsltAll <- as_tibble(result) %>% bind_cols(list(k = k))
+      }else{
+          rsltAll <- rsltAll %>% bind_rows(as_tibble(result) %>% 
+                                             bind_cols(list(k = k))) 
+      }
+  }
 }
+
 my_plot <- function(mydf){
   measure <- mydf$measure[1]
+  k <- mydf$k[1]
   plt <- ggplot(mydf, aes(gamma, kappa, fill = value)) +
     geom_tile() + 
     ggtitle(c("RMSE", "Number of selected fake var", "Time")
@@ -197,19 +202,19 @@ my_plot <- function(mydf){
     theme(text = element_text(size = 20), legend.title = element_blank(),
           plot.title = element_text(hjust = 0.5),
           legend.key.height = unit(1.9, 'cm'))
-  fn <- paste0("sensitivity_", measure, ".pdf")
+  fn <- paste0("sensitivity_k", k, "_", measure, ".pdf")
   list(plt = plt, fn = fn)
 }
 rsltAll$time <- rsltAll$time / 60
 rsltAll$mtd[rsltAll$mtd == "VREG"] <- "VGPR"
 rsltAll$fpos <- 5 * rsltAll$fpos / (1 - rsltAll$fpos)
 rsltAll %>% mutate(gamma = factor(gamma), kappa = factor(kappa)) %>% 
-  group_by(kappa, gamma) %>% 
+  group_by(kappa, gamma, k) %>% 
   summarise(scr = mean(scr), fpos = mean(fpos, na.rm = T), 
             time = mean(time)) %>%
   pivot_longer(cols = c("scr", "time", "fpos"), names_to = "measure") %>%
   mutate(measure = factor(measure, levels = c("scr", "fpos", "time"))) %>%
-  group_by(measure) %>% group_split() %>% map(my_plot) %>% 
+  group_by(measure, k) %>% group_split() %>% map(my_plot) %>% 
   map(function(x){
     ggsave(filename = x$fn, plot = x$plt, width = 7, height = 5)
     })
