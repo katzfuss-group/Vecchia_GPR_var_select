@@ -192,15 +192,16 @@ dfGrad <- as.data.frame(dfGrad)
 dfGrad$col <- as.factor(dfGrad$col)
 dfGrad$ID <- as.factor(dfGrad$ID)
 dfGrad$shape <- as.factor(dfGrad$shape)
+dfGrad <- dfGrad[order(dfGrad$col, decreasing = T), ]
 
 ggplot(data = dfGrad, aes(x = ID, y = grad, col = col, shape = shape)) +
   geom_point(mapping = aes(size = shape)) +
   scale_color_manual(breaks = unique(dfGrad$col),
-                     values = c(brewer.pal(d0, 'Dark2'), rep("grey", d - d0))) +
+                     values = c("grey", brewer.pal(d0, 'Dark2'))) +
   scale_shape_manual(breaks = unique(dfGrad$shape),
-                     values = c("cross", "circle")) +
+                     values = c("circle", "cross")) +
   scale_size_manual(breaks = unique(dfGrad$shape),
-                    values = c(5, 2)) +
+                    values = c(2.5, 5)) +
   geom_vline(xintercept = d0 + 0.5, col = "red", lty = "dashed") +
   xlab(expression(paste(d[1], " (Left: independent | Right: dependent)"))) + 
   ylab("Normalized Gradient") + 
@@ -226,15 +227,16 @@ dfGrad <- as.data.frame(dfGrad)
 dfGrad$col <- as.factor(dfGrad$col)
 dfGrad$ID <- as.factor(dfGrad$ID)
 dfGrad$shape <- as.factor(dfGrad$shape)
+dfGrad <- dfGrad[order(dfGrad$col, decreasing = T), ]
 
 ggplot(data = dfGrad, aes(x = ID, y = grad, col = col, shape = shape)) +
   geom_point(mapping = aes(size = shape)) +
   scale_color_manual(breaks = unique(dfGrad$col),
-                     values = c(brewer.pal(d0, 'Dark2'), rep("grey", d - d0))) +
+                     values = c("grey", brewer.pal(d0, 'Dark2'))) +
   scale_shape_manual(breaks = unique(dfGrad$shape),
-                     values = c("cross", "circle")) +
+                     values = c("circle", "cross")) +
   scale_size_manual(breaks = unique(dfGrad$shape),
-                    values = c(5, 2)) +
+                    values = c(2.5, 5)) +
   geom_vline(xintercept = d0 + 0.5, col = "red", lty = "dashed") +
   xlab(expression(paste(d[1], " (Left: independent | Right: dependent)"))) + 
   ylab("Normalized Gradient") + 
